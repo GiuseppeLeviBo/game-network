@@ -26,16 +26,17 @@ Implemented:
 - host snapshot and event broadcast;
 - in-memory fake transport for deterministic tests;
 - skeleton PWA example using `BroadcastChannel`;
+- PeerJS transport adapter using WebRTC DataConnections;
+- local PeerServer-based signaling helper;
+- skeleton PWA `transport=peerjs` mode;
 - Node unit tests;
-- Playwright browser test with two app pages exchanging data.
+- Playwright browser tests for both `BroadcastChannel` and PeerJS/WebRTC.
 
 Not implemented yet:
 
-- PeerJS transport adapter;
-- PeerServer or custom LAN signaling server;
-- WebRTC DataChannel transport;
 - Zeroconf/mDNS discovery;
 - reconnect handling;
+- multiple physical DataChannels with different reliability settings;
 - binary snapshot encoding;
 - package publishing.
 
@@ -85,10 +86,10 @@ Transport adapters move protocol messages between peers.
 Current transport:
 
 - `FakeNetwork` / `FakeTransport` for tests and local simulation.
+- `PeerJsTransport` for browser-to-browser WebRTC through PeerJS.
 
 Planned transports:
 
-- PeerJS DataConnection adapter;
 - native WebRTC DataChannel adapter;
 - optional WebSocket adapter for development.
 
@@ -96,9 +97,9 @@ Planned transports:
 
 WebRTC needs signaling before DataChannels can open.
 
-The intended first LAN solution is a small Node signaling helper, probably based
-on PeerServer first. The helper is not authoritative and does not simulate the
-game. It only helps peers find each other and establish WebRTC connections.
+The first LAN signaling helper is based on PeerServer. The helper is not
+authoritative and does not simulate the game. It only helps peers find each
+other and establish WebRTC connections.
 
 ### Discovery
 
@@ -119,9 +120,14 @@ Game_Network/
     events.ts
     fakeTransport.ts
     index.ts
+    peerJsTransport.ts
     protocol.ts
     room.ts
+    signalingServer.ts
+    signalingServerCli.ts
     transport.ts
+  scripts/
+    start-webrtc-stack.mjs
   tests/
     browser/
     fakeTransport.test.ts
@@ -169,6 +175,18 @@ Run the complete test suite:
 npm run test:all
 ```
 
+Run a security audit for all dependencies:
+
+```bash
+npm run audit
+```
+
+Run a security audit for runtime dependencies only:
+
+```bash
+npm run audit:prod
+```
+
 Start the skeleton PWA manually:
 
 ```bash
@@ -182,8 +200,29 @@ http://127.0.0.1:5173/?role=host&room=ROOM-1&name=HST&peer=host-peer
 http://127.0.0.1:5173/?role=guest&room=ROOM-1&name=GST&peer=guest-peer&host=host-peer
 ```
 
-The skeleton example currently uses `BroadcastChannel`, so it is a browser-page
-test harness rather than the final LAN/WebRTC transport.
+Start only the local PeerServer signaling helper:
+
+```bash
+npm run dev:peer-signaling
+```
+
+Start the WebRTC test stack, with PeerServer on port `9000` and the skeleton PWA
+on port `5175`:
+
+```bash
+npm run dev:webrtc-stack
+```
+
+Then open:
+
+```text
+http://127.0.0.1:5175/?transport=peerjs&role=host&room=ROOM-1&name=HST&peer=host-peer
+http://127.0.0.1:5175/?transport=peerjs&role=guest&room=ROOM-1&name=GST&peer=guest-peer&host=host-peer
+```
+
+The default skeleton mode uses `BroadcastChannel`, which is useful for fast
+browser-page tests. The `transport=peerjs` mode uses PeerJS and WebRTC
+DataConnections through the local signaling helper.
 
 ## Basic Usage
 
@@ -262,7 +301,51 @@ guestRoom.sendInput({
 
 The `transport` in these examples is intentionally abstract. In tests it can be
 `FakeTransport`; in the browser skeleton it is a `BroadcastChannel` transport;
-later it will be a PeerJS or WebRTC transport.
+in WebRTC mode it is `PeerJsTransport`.
+
+### PeerJS Transport
+
+```ts
+import { PeerJsTransport } from "@local/game-network";
+
+const hostTransport = await PeerJsTransport.create({
+  peerId: "host-peer",
+  peerOptions: {
+    host: "127.0.0.1",
+    port: 9000,
+    path: "/game-network",
+    secure: false,
+    config: {
+      iceServers: [],
+    },
+  },
+});
+```
+
+Guests create their own transport and connect to the host peer before calling
+`guestRoom.join()`.
+
+```ts
+const guestTransport = await PeerJsTransport.create({
+  peerId: "guest-peer",
+  peerOptions: {
+    host: "127.0.0.1",
+    port: 9000,
+    path: "/game-network",
+    secure: false,
+    config: {
+      iceServers: [],
+    },
+  },
+});
+
+await guestTransport.connect("host-peer");
+```
+
+The current adapter uses one reliable PeerJS DataConnection and multiplexes the
+library's logical `control` and `realtime` channels inside each message. Future
+versions may use separate physical DataChannels with different reliability
+settings.
 
 ## Testing Strategy
 
@@ -279,7 +362,8 @@ Current test coverage:
 - room limit is enforced;
 - guest input reaches host;
 - host snapshot reaches guest;
-- skeleton PWA exchanges data across two browser pages.
+- skeleton PWA exchanges data across two browser pages with `BroadcastChannel`;
+- skeleton PWA exchanges data across two browser pages with PeerJS/WebRTC.
 
 The browser test opens two pages:
 
@@ -288,6 +372,31 @@ The browser test opens two pages:
 
 The guest joins, sends an input, the host receives it, and the guest receives an
 authoritative snapshot in response.
+
+## Security Checks
+
+Dependency security is part of the normal project workflow.
+
+Run this before releases, before integrating the library into a game, and after
+adding or upgrading dependencies:
+
+```bash
+npm run audit
+```
+
+For runtime-only risk, especially before packaging the library for another game:
+
+```bash
+npm run audit:prod
+```
+
+Known-vulnerability policy:
+
+- critical or high runtime vulnerabilities block integration;
+- moderate runtime vulnerabilities should be fixed or explicitly documented;
+- development-only vulnerabilities are evaluated case by case;
+- `npm audit fix --force` should not be used blindly because it may introduce
+  breaking upgrades.
 
 ## Design Principles
 
@@ -306,12 +415,10 @@ authoritative snapshot in response.
 2. Add stricter message validation.
 3. Add disconnect and player-left handling.
 4. Add ping/pong latency diagnostics.
-5. Add a PeerJS transport adapter.
-6. Add a local PeerServer-based signaling helper.
-7. Test real WebRTC between two browser pages.
-8. Test LAN connection between two machines.
-9. Add optional Zeroconf/mDNS room discovery.
-10. Integrate with QIX as the first real game.
+5. Test LAN connection between two machines.
+6. Add optional Zeroconf/mDNS room discovery.
+7. Add separate physical DataChannels for control and realtime traffic.
+8. Integrate with QIX as the first real game.
 
 ## Notes
 
@@ -320,4 +427,3 @@ The detailed technical specification lives in:
 ```text
 Notes/game_network_spec.md
 ```
-
