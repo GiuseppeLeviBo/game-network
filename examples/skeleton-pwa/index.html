@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>Game Network Skeleton</title>
+  </head>
+  <body>
+    <main class="app">
+      <section class="panel">
+        <header>
+          <p class="eyebrow">Game Network</p>
+          <h1>Skeleton PWA</h1>
+        </header>
+
+        <dl class="status-grid">
+          <div>
+            <dt>Role</dt>
+            <dd data-testid="role">-</dd>
+          </div>
+          <div>
+            <dt>Room</dt>
+            <dd data-testid="room">-</dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd data-testid="status">Booting</dd>
+          </div>
+          <div>
+            <dt>Local player</dt>
+            <dd data-testid="local-player">-</dd>
+          </div>
+        </dl>
+
+        <section>
+          <h2>Players</h2>
+          <ul data-testid="players"></ul>
+        </section>
+
+        <section>
+          <h2>Exchange</h2>
+          <button type="button" data-testid="send-input">Send input</button>
+          <p data-testid="last-input">No input</p>
+          <p data-testid="last-snapshot">No snapshot</p>
+        </section>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

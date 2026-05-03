@@ -1,0 +1,6 @@
+node_modules/
+dist/
+Notes/*
+!Notes/*.md
+playwright-report/
+test-results/
