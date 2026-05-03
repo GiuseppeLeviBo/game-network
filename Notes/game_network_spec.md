@@ -32,6 +32,11 @@ over WebRTC DataChannels and a small local signaling service.
 - No anti-cheat guarantees.
 - No authoritative cloud server.
 - No audio/video calls.
+- No file transfer.
+- No generic chat system.
+- No generic peer-to-peer data tunnel.
+- No generic relay service.
+- No arbitrary socket abstraction exposed as the main API.
 - No direct dependency on any specific game engine.
 - No attempt to bypass browser or operating-system network security rules.
 
@@ -425,7 +430,62 @@ The library should still:
 
 The library does not prevent cheating by a modified client.
 
-## 18. LAN Join UX
+## 18. Intended Use And Safety Boundaries
+
+Game Network is intended only for connecting browser-based multiplayer PWA game
+instances controlled by the users who are actively playing together.
+
+The project must not become a general-purpose communication, tunneling, relay,
+file-transfer, remote-control, or anonymous peer-to-peer messaging library.
+
+Allowed uses:
+
+- local or LAN multiplayer PWA games;
+- host-authoritative game sessions;
+- deterministic game-input exchange;
+- authoritative game snapshots;
+- lobby metadata for players in the same game session;
+- local development and testing of multiplayer game flows.
+
+Disallowed uses:
+
+- arbitrary peer-to-peer data exchange unrelated to a game session;
+- file transfer;
+- hidden background communication;
+- remote administration or remote-control features;
+- anonymous internet matchmaking;
+- public relay services;
+- generic chat or messaging products;
+- attempts to bypass browser, operating-system, router, or network policies.
+
+API safety constraints:
+
+- Public APIs should stay room-oriented: `HostRoom`, `GuestRoom`, game inputs,
+  snapshots, and game events.
+- Raw transports should remain adapter internals or clearly marked development
+  tools.
+- The library should not expose a convenient generic `sendAnythingToAnyone`
+  surface as the primary API.
+- Message types must be versioned and validated at the network boundary.
+- Unknown message types must be rejected.
+- Message size limits must be enforced before npm publication.
+- Repeated invalid messages should close or quarantine the connection.
+- Runtime channels should be scoped to a known room id.
+- Signaling helpers should not become public relay infrastructure.
+- Examples must remain game/skeleton-game examples, not chat, file transfer, or
+  generic communication demos.
+
+Publishing safety requirements:
+
+- README must include intended-use and prohibited-use language.
+- `package.json` description and keywords must emphasize PWA multiplayer games.
+- Security checks must include `npm audit` and `npm audit --omit=dev`.
+- High or critical runtime vulnerabilities block publication.
+- Moderate runtime vulnerabilities must be fixed or explicitly documented before
+  publication.
+- `npm audit fix --force` must not be used without review.
+
+## 19. LAN Join UX
 
 The desired first UX is simple manual entry.
 
@@ -445,7 +505,7 @@ Guest screen accepts:
 Optional discovery can later show nearby rooms, but manual join remains the
 fallback.
 
-## 19. Suggested Repository Layout
+## 20. Suggested Repository Layout
 
 ```text
 Game_Network/
@@ -485,7 +545,7 @@ Fake transports, deterministic clocks, and protocol test helpers.
 
 Minimal browser demo with one host and up to three guests moving colored squares.
 
-## 20. Test Strategy
+## 21. Test Strategy
 
 ### Unit tests
 
@@ -529,7 +589,7 @@ Fake transport should simulate:
 - disconnect;
 - reconnect attempt.
 
-## 21. Initial Milestones
+## 22. Initial Milestones
 
 ### Milestone 1: Specification and protocol
 
@@ -570,7 +630,7 @@ Fake transport should simulate:
 - guests send input;
 - keep QIX game rules outside Game Network.
 
-## 22. Open Decisions
+## 23. Open Decisions
 
 - Use PeerServer directly in the first MVP, or write a tiny custom WebSocket
   signaling service from the start?
@@ -580,7 +640,7 @@ Fake transport should simulate:
 - Should the first adapter expose one physical DataChannel or two?
 - Should discovery be implemented before or after QIX integration?
 
-## 23. Recommended Defaults
+## 24. Recommended Defaults
 
 - Language: TypeScript.
 - Runtime: browser client plus Node signaling helper.

@@ -2,7 +2,9 @@ import "./style.css";
 import {
   GuestRoom,
   HostRoom,
+  NativeWebRtcTransport,
   PeerJsTransport,
+  WebSocketTransport,
   type GameNetworkTransport,
   type PlayerInfo,
 } from "../../../src/index";
@@ -25,7 +27,7 @@ const roomId = params.get("room") || "ROOM-1";
 const displayName = params.get("name") || (role === "host" ? "HST" : "GST");
 const peerId = params.get("peer") || `${role}-${Math.random().toString(36).slice(2, 8)}`;
 const hostPeerId = params.get("host") || "host-peer";
-const transportKind = params.get("transport") === "peerjs" ? "peerjs" : "broadcast";
+const transportKind = readTransportKind();
 
 const roleEl = byTestId("role");
 const roomEl = byTestId("room");
@@ -47,7 +49,10 @@ void start();
 async function start(): Promise<void> {
   const transport = await createTransport();
 
-  if (role === "guest" && transport instanceof PeerJsTransport) {
+  if (
+    role === "guest" &&
+    (transport instanceof PeerJsTransport || transport instanceof NativeWebRtcTransport)
+  ) {
     await transport.connect(hostPeerId);
   }
 
@@ -121,6 +126,25 @@ async function createTransport(): Promise<GameNetworkTransport> {
     return new BroadcastChannelTransport(peerId, roomId);
   }
 
+  if (transportKind === "websocket") {
+    statusEl.textContent = "Connecting WebSocket";
+    return WebSocketTransport.create({
+      peerId,
+      url: params.get("hubUrl") || "ws://127.0.0.1:9100",
+    });
+  }
+
+  if (transportKind === "native-webrtc") {
+    statusEl.textContent = "Connecting WebRTC";
+    return NativeWebRtcTransport.create({
+      peerId,
+      signalingUrl: params.get("hubUrl") || "ws://127.0.0.1:9100",
+      rtcConfig: {
+        iceServers: [],
+      },
+    });
+  }
+
   statusEl.textContent = "Connecting transport";
   return PeerJsTransport.create({
     peerId,
@@ -135,6 +159,14 @@ async function createTransport(): Promise<GameNetworkTransport> {
       },
     },
   });
+}
+
+function readTransportKind(): "broadcast" | "websocket" | "peerjs" | "native-webrtc" {
+  const value = params.get("transport");
+  if (value === "websocket" || value === "peerjs" || value === "native-webrtc") {
+    return value;
+  }
+  return "broadcast";
 }
 
 if ("serviceWorker" in navigator) {

@@ -14,6 +14,15 @@ start("peer-signaling", [
   "/game-network",
 ]);
 
+start("websocket-hub", [
+  "node",
+  "dist/src/webSocketHubServerCli.js",
+  "--host",
+  "127.0.0.1",
+  "--port",
+  "9100",
+]);
+
 start("vite", [
   "node",
   "node_modules/vite/bin/vite.js",

@@ -7,6 +7,7 @@
     "build": "tsc -p tsconfig.json",
     "dev:skeleton": "vite --host 127.0.0.1 examples/skeleton-pwa",
     "dev:peer-signaling": "npm run build && node dist/src/signalingServerCli.js --host 127.0.0.1 --port 9000 --path /game-network",
+    "dev:websocket-hub": "npm run build && node dist/src/webSocketHubServerCli.js --host 127.0.0.1 --port 9100",
     "dev:webrtc-stack": "npm run build && node scripts/start-webrtc-stack.mjs",
     "audit": "npm audit",
     "audit:prod": "npm audit --omit=dev",
@@ -17,11 +18,13 @@
   "devDependencies": {
     "@playwright/test": "^1.59.1",
     "@types/node": "22.19.17",
+    "@types/ws": "^8.18.1",
     "typescript": "5.9.3",
     "vite": "^7.3.2"
   },
   "dependencies": {
     "peer": "^1.0.2",
-    "peerjs": "^1.5.5"
+    "peerjs": "^1.5.5",
+    "ws": "^8.20.0"
   }
 }
