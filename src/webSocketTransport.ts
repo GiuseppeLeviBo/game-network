@@ -5,6 +5,7 @@ import type {
   TransportChannelName,
   TransportMessage,
 } from "./transport.js";
+import { isTransportChannelName } from "./transport.js";
 
 export interface WebSocketTransportOptions {
   peerId: PeerId;
@@ -123,7 +124,7 @@ function parseMessage(data: unknown): WebSocketTransportServerMessage | undefine
     if (
       parsed.kind === "transport" &&
       typeof parsed.fromPeerId === "string" &&
-      (parsed.channel === "control" || parsed.channel === "realtime")
+      isTransportChannelName(parsed.channel)
     ) {
       return parsed as WebSocketTransportServerMessage;
     }
@@ -143,4 +144,3 @@ function waitForSocketOpen(socket: WebSocket): Promise<void> {
     });
   });
 }
-

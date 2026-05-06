@@ -1,6 +1,10 @@
 import type { PeerId, Unsubscribe } from "./protocol.js";
 
-export type TransportChannelName = "control" | "realtime";
+export type TransportChannelName = "control" | "realtime" | "sync";
+
+export function isTransportChannelName(value: unknown): value is TransportChannelName {
+  return value === "control" || value === "realtime" || value === "sync";
+}
 
 export interface TransportMessage {
   channel: TransportChannelName;
@@ -19,4 +23,3 @@ export interface GameNetworkTransport {
   onMessage(handler: (message: TransportMessage) => void): Unsubscribe;
   onClose(handler: () => void): Unsubscribe;
 }
-

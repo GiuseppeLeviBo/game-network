@@ -13,6 +13,7 @@
     "audit:prod": "npm audit --omit=dev",
     "test": "npm run build && node --test dist/tests/**/*.test.js",
     "test:browser": "playwright test",
+    "test:chess": "playwright test --config playwright.chess.config.ts",
     "test:all": "npm run test && npm run test:browser"
   },
   "devDependencies": {

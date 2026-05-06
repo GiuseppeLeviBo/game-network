@@ -7,6 +7,7 @@ import type {
   TransportChannelName,
   TransportMessage,
 } from "./transport.js";
+import { isTransportChannelName } from "./transport.js";
 
 const TRANSPORT_MARKER = "__gameNetworkTransport";
 
@@ -156,7 +157,7 @@ function isTransportPayload(value: unknown): value is PeerJsTransportPayload {
   const candidate = value as Record<string, unknown>;
   return (
     candidate[TRANSPORT_MARKER] === 1 &&
-    (candidate.channel === "control" || candidate.channel === "realtime") &&
+    isTransportChannelName(candidate.channel) &&
     "data" in candidate
   );
 }

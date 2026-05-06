@@ -307,6 +307,8 @@ All messages include:
 - `game_event`
 - `ping`
 - `pong`
+- `sync_req`
+- `sync_resp`
 - `resync_request`
 - `resync_snapshot`
 
@@ -321,7 +323,7 @@ All messages include:
 
 ## 12. Transport Channels
 
-The abstraction should support at least two logical channels.
+The abstraction should support at least three logical channels.
 
 ### Control channel
 
@@ -352,6 +354,21 @@ Recommended transport:
 - loss tolerant;
 - sequence-numbered;
 - stale messages may be dropped.
+
+### Sync channel
+
+Purpose:
+
+- low-level host/client application clock synchronization;
+- small timestamp messages;
+- latency and quality estimates for game scheduling.
+
+Recommended transport:
+
+- low latency;
+- loss tolerant;
+- old samples may be dropped;
+- ideally a dedicated unordered WebRTC DataChannel.
 
 If the selected adapter does not support multiple DataChannel reliability modes,
 the core should still expose logical channels and let the adapter downgrade to
@@ -392,6 +409,27 @@ Recommended fields:
 
 The library should provide ping/pong latency estimates, but games decide how to
 use them.
+
+The library also provides optional clock synchronization as a separate low-level
+service. It uses a host/client model and four timestamp messages:
+
+- guest sends `sync_req(syncSeq, t1)`;
+- host records receive time `t2`;
+- host sends `sync_resp(syncSeq, t1, t2, t3)`;
+- guest records receive time `t4`.
+
+The client computes:
+
+```text
+rtt    = (t4 - t1) - (t3 - t2)
+offset = ((t2 - t1) + (t3 - t4)) / 2
+```
+
+The client keeps recent samples, filters the lowest-RTT subset, estimates median
+offset, and fits a linear model for drift. This produces a virtual host clock
+without changing the operating-system clock. Games can use it for synchronized
+round starts, rendering interpolation, and event scheduling, while the host
+remains authoritative for simulation state.
 
 ## 15. Message Encoding
 

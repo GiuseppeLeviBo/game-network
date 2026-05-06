@@ -81,6 +81,18 @@ export interface GameEventEnvelope<GameEvent> {
   event: GameEvent;
 }
 
+export interface SyncRequestPayload {
+  syncSeq: number;
+  t1: number;
+}
+
+export interface SyncResponsePayload {
+  syncSeq: number;
+  t1: number;
+  t2: number;
+  t3: number;
+}
+
 export type LobbyMessage<GameConfig = unknown> =
   | MessageEnvelope<"join_request", JoinRequestPayload>
   | MessageEnvelope<"join_accept", JoinAcceptPayload<GameConfig>>
@@ -96,12 +108,16 @@ export type RuntimeMessage<GameInput = unknown, GameSnapshot = unknown, GameEven
   | MessageEnvelope<"ping", { nonce: string }>
   | MessageEnvelope<"pong", { nonce: string }>;
 
+export type SyncMessage =
+  | MessageEnvelope<"sync_req", SyncRequestPayload>
+  | MessageEnvelope<"sync_resp", SyncResponsePayload>;
+
 export type GameNetworkMessage<
   GameInput = unknown,
   GameSnapshot = unknown,
   GameEvent = unknown,
   GameConfig = unknown,
-> = LobbyMessage<GameConfig> | RuntimeMessage<GameInput, GameSnapshot, GameEvent>;
+> = LobbyMessage<GameConfig> | RuntimeMessage<GameInput, GameSnapshot, GameEvent> | SyncMessage;
 
 export function createEnvelope<TType extends string, TPayload>(options: {
   type: TType;
@@ -133,4 +149,3 @@ export function isProtocolEnvelope(value: unknown): value is MessageEnvelope {
     "payload" in candidate
   );
 }
-

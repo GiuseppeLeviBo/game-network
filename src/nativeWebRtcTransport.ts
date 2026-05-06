@@ -5,6 +5,7 @@ import type {
   TransportChannelName,
   TransportMessage,
 } from "./transport.js";
+import { isTransportChannelName } from "./transport.js";
 
 export interface NativeWebRtcTransportOptions {
   peerId: PeerId;
@@ -320,7 +321,7 @@ function parseDataChannelPayload(data: unknown): DataChannelPayload | undefined 
     const parsed = JSON.parse(data) as Partial<DataChannelPayload>;
     if (
       parsed.marker === "game-network-native-webrtc" &&
-      (parsed.channel === "control" || parsed.channel === "realtime")
+      isTransportChannelName(parsed.channel)
     ) {
       return parsed as DataChannelPayload;
     }
@@ -351,4 +352,3 @@ function waitForDataChannelOpen(dataChannel: RTCDataChannel): Promise<void> {
     });
   });
 }
-

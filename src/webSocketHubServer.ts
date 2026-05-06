@@ -1,5 +1,5 @@
 import { WebSocketServer, type WebSocket } from "ws";
-import type { TransportChannelName } from "./transport.js";
+import { isTransportChannelName, type TransportChannelName } from "./transport.js";
 
 export interface StartWebSocketHubServerOptions {
   port: number;
@@ -130,7 +130,7 @@ function parseMessage(serialized: string): HubClientMessage | undefined {
     }
     if (
       parsed.kind === "transport" &&
-      (parsed.channel === "control" || parsed.channel === "realtime")
+      isTransportChannelName(parsed.channel)
     ) {
       return parsed as HubClientMessage;
     }
@@ -152,4 +152,3 @@ function send(client: WebSocket, message: HubServerMessage): void {
     client.send(JSON.stringify(message));
   }
 }
-

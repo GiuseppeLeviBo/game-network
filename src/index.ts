@@ -1,4 +1,5 @@
 export * from "./events.js";
+export * from "./clockSync.js";
 export * from "./protocol.js";
 export * from "./transport.js";
 export * from "./fakeTransport.js";

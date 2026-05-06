@@ -24,6 +24,7 @@ Implemented:
 - guest join and reject flow;
 - guest input delivery to host;
 - host snapshot and event broadcast;
+- low-level host/client clock synchronization;
 - in-memory fake transport for deterministic tests;
 - skeleton PWA example using `BroadcastChannel`;
 - PeerJS transport adapter using WebRTC DataConnections;
@@ -31,6 +32,7 @@ Implemented:
 - skeleton PWA `transport=peerjs` mode;
 - WebSocket hub and development transport;
 - native WebRTC DataChannel transport with WebSocket signaling;
+- single-file chess candidate demo with network diagnostics panel;
 - Node unit tests;
 - Playwright browser tests for `BroadcastChannel`, WebSocket, PeerJS/WebRTC,
   and native WebRTC.
@@ -39,7 +41,7 @@ Not implemented yet:
 
 - Zeroconf/mDNS discovery;
 - reconnect handling;
-- multiple physical DataChannels with different reliability settings;
+- separate physical DataChannels with different reliability settings;
 - binary snapshot encoding;
 - package publishing.
 
@@ -130,6 +132,7 @@ Game_Network/
   src/
     events.ts
     fakeTransport.ts
+    clockSync.ts
     index.ts
     nativeWebRtcTransport.ts
     peerJsTransport.ts
@@ -143,6 +146,8 @@ Game_Network/
     webSocketTransport.ts
   scripts/
     start-webrtc-stack.mjs
+  single-file-chess-game/
+    index.html
   tests/
     browser/
     fakeTransport.test.ts
@@ -344,6 +349,72 @@ The `transport` in these examples is intentionally abstract. In tests it can be
 `FakeTransport`; in the browser skeleton it is a `BroadcastChannel` transport;
 in WebRTC mode it can be `PeerJsTransport` or `NativeWebRtcTransport`.
 
+### Clock Sync
+
+`ClockSyncHost` and `ClockSyncClient` provide a low-level synchronized
+application clock. The game engine remains host-authoritative; clock sync only
+helps clients map local monotonic time to the host's monotonic time.
+
+The protocol uses four timestamps:
+
+- guest sends `sync_req(syncSeq, t1)`;
+- host records receive time `t2`;
+- host sends `sync_resp(syncSeq, t1, t2, t3)`;
+- guest records receive time `t4`.
+
+The client computes:
+
+```text
+rtt    = (t4 - t1) - (t3 - t2)
+offset = ((t2 - t1) + (t3 - t4)) / 2
+```
+
+It keeps recent samples, selects the lowest-RTT samples, estimates median
+offset, and fits a small linear model for clock drift. This gives the game:
+
+- `client.now()` as estimated host time;
+- `hostTimeFromLocal(localTime)`;
+- `localTimeFromHost(hostTime)`;
+- `scheduleAtHostTime(hostTime, callback)`;
+- quality stats such as `offsetMs`, `rttMs`, `bestRttMs`, `drift`.
+
+Host setup:
+
+```ts
+import { ClockSyncHost } from "@local/game-network";
+
+const clockHost = new ClockSyncHost({
+  roomId: "ROOM-1",
+  transport: hostTransport,
+});
+```
+
+Guest setup:
+
+```ts
+import { ClockSyncClient } from "@local/game-network";
+
+const clockClient = new ClockSyncClient({
+  roomId: "ROOM-1",
+  hostPeerId: "host-peer",
+  transport: guestTransport,
+});
+
+clockClient.requestBurst(32);
+```
+
+For game events, schedule a little in the future of the host clock:
+
+```ts
+const startAt = clockClient.now() + 40;
+clockClient.scheduleAtHostTime(startAt, () => startRoundAnimation());
+```
+
+Current adapters multiplex the logical `sync` channel into the same physical
+connection as `control` and `realtime`. The API is already separated so a future
+WebRTC adapter can map `sync` to a dedicated unordered, low-latency
+DataChannel.
+
 ### PeerJS Transport
 
 ```ts
@@ -384,9 +455,9 @@ await guestTransport.connect("host-peer");
 ```
 
 The current adapter uses one reliable PeerJS DataConnection and multiplexes the
-library's logical `control` and `realtime` channels inside each message. Future
-versions may use separate physical DataChannels with different reliability
-settings.
+library's logical `control`, `realtime`, and `sync` channels inside each
+message. Future versions may use separate physical DataChannels with different
+reliability settings.
 
 ### WebSocket Development Transport
 
@@ -435,6 +506,73 @@ await guestTransport.connect("host-peer");
 The current native adapter uses one ordered reliable DataChannel and multiplexes
 the library's logical channels in JSON messages.
 
+### Single-File Chess Candidate Demo
+
+`single-file-chess-game/index.html` is a compact candidate game for validating
+room, clock-sync, and diagnostics features before integrating networking into
+QIX. Its UI includes a `Collegamento` panel that shows local page address/port,
+role, room id, peer ids, signaling endpoint, transport, RTT, best RTT, clock
+offset, and sync quality.
+
+The panel can be fed by the game or by tests through:
+
+```ts
+window.__CHESS_NETWORK_DIAGNOSTICS__.update({
+  status: "connected",
+  connectedPeerId: "guest-peer",
+  rttMs: 18,
+  bestRttMs: 12,
+  offsetMs: 3.4,
+  lastSyncAt: Date.now(),
+});
+```
+
+It also has a localhost sync test mode through `WebSocketTransport`.
+The chess page uses a host-authoritative model: the host owns the board state,
+broadcasts snapshots, and accepts guest moves as realtime inputs. The guest can
+play optimistically, but the next host snapshot is the source of truth.
+
+Build the library, start the WebSocket hub, then serve the `Game_Network` folder
+on two local ports:
+
+```bash
+npm run build
+npm run dev:websocket-hub
+```
+
+In two other terminals, from the `Game_Network` directory:
+
+```bash
+python -m http.server 9201
+python -m http.server 9202
+```
+
+Open the host:
+
+```text
+http://127.0.0.1:9201/single-file-chess-game/?transport=websocket&role=host&room=CHESS-1&peer=chess-host&signaling=ws://127.0.0.1:9100
+```
+
+Open the guest:
+
+```text
+http://127.0.0.1:9202/single-file-chess-game/?transport=websocket&role=guest&room=CHESS-1&peer=chess-guest&host=chess-host&signaling=ws://127.0.0.1:9100
+```
+
+When the guest joins, the `Collegamento` panel should show the remote peer,
+RTT, best RTT, offset, and sync quality. Moving a piece on the host should update
+the guest after the snapshot. Moving a legal piece on the guest sends a realtime
+input to the host; the host applies it and broadcasts the resulting snapshot.
+
+For the automated localhost browser test:
+
+```bash
+npm run test:chess
+```
+
+That spec starts its own temporary WebSocket hub and two temporary static
+servers, then verifies host snapshot mirroring and guest move propagation.
+
 ## Testing Strategy
 
 The project grows one feature at a time.
@@ -442,6 +580,9 @@ The project grows one feature at a time.
 Current test coverage:
 
 - protocol envelopes are created and recognized;
+- clock sync computes NTP-style offset and RTT from four timestamps;
+- clock sync filters low-RTT samples for robust estimates;
+- clock sync exchanges host/client messages over the logical `sync` channel;
 - invalid envelopes are rejected;
 - fake transport delivers direct messages;
 - fake transport broadcasts to all peers except sender;
@@ -450,6 +591,8 @@ Current test coverage:
 - room limit is enforced;
 - guest input reaches host;
 - host snapshot reaches guest;
+- the single-file chess candidate mirrors host snapshots and guest moves over
+  WebSocket;
 - skeleton PWA exchanges data across two browser pages with `BroadcastChannel`;
 - skeleton PWA exchanges data across two browser pages with WebSocket;
 - skeleton PWA exchanges data across two browser pages with PeerJS/WebRTC;
@@ -504,10 +647,10 @@ Known-vulnerability policy:
 1. Stabilize the core API.
 2. Add stricter message validation.
 3. Add disconnect and player-left handling.
-4. Add ping/pong latency diagnostics.
+4. Add clock sync burst scheduling and quality diagnostics.
 5. Test LAN connection between two machines.
 6. Add optional Zeroconf/mDNS room discovery.
-7. Add separate physical DataChannels for control and realtime traffic.
+7. Add separate physical DataChannels for control, realtime, and sync traffic.
 8. Harden disconnect/reconnect behavior.
 9. Prepare npm package metadata and exports.
 10. Integrate with QIX as the first real game.
