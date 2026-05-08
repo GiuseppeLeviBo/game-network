@@ -1,0 +1,10 @@
+{
+  "games": [
+    {
+      "id": "chess",
+      "title": "Single-file Chess",
+      "entry": "/single-file-chess-game/index.html",
+      "description": "Example chess game used to validate synchronization and room links."
+    }
+  ]
+}

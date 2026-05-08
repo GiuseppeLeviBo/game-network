@@ -1,9 +1,16 @@
+import type { Server as HttpServer } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import { isTransportChannelName, type TransportChannelName } from "./transport.js";
 
 export interface StartWebSocketHubServerOptions {
   port: number;
   host?: string;
+  path?: string;
+}
+
+export interface AttachWebSocketHubServerOptions {
+  server: HttpServer;
+  path?: string;
 }
 
 type HubClientMessage =
@@ -43,13 +50,27 @@ type HubServerMessage =
     };
 
 export function startWebSocketHubServer(options: StartWebSocketHubServerOptions): WebSocketServer {
-  const clientsByPeerId = new Map<string, WebSocket>();
-  const peerIdsByClient = new WeakMap<WebSocket, string>();
   const server = new WebSocketServer({
     host: options.host ?? "127.0.0.1",
     port: options.port,
+    path: options.path,
   });
+  configureWebSocketHubServer(server);
+  return server;
+}
 
+export function attachWebSocketHubServer(options: AttachWebSocketHubServerOptions): WebSocketServer {
+  const server = new WebSocketServer({
+    server: options.server,
+    path: options.path,
+  });
+  configureWebSocketHubServer(server);
+  return server;
+}
+
+function configureWebSocketHubServer(server: WebSocketServer): void {
+  const clientsByPeerId = new Map<string, WebSocket>();
+  const peerIdsByClient = new WeakMap<WebSocket, string>();
   server.on("connection", (client) => {
     client.on("message", (rawData) => {
       const message = parseMessage(rawData.toString());
@@ -99,8 +120,6 @@ export function startWebSocketHubServer(options: StartWebSocketHubServerOptions)
       }
     });
   });
-
-  return server;
 }
 
 function forwardOrBroadcast(

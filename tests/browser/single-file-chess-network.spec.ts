@@ -38,6 +38,8 @@ test("single-file chess mirrors host snapshots and guest moves over WebSocket", 
 
     await expectConnected(host);
     await expectConnected(guest);
+    await expect(host.locator("#playerBadge")).toHaveText("Bianco (Tu)");
+    await expect(guest.locator("#playerBadge")).toHaveText("Nero (Tu)");
 
     await host.evaluate(() => {
       window.__CHESS_GAME_ADAPTER__.applyMove({ from: "E2", to: "E4" });
@@ -55,6 +57,38 @@ test("single-file chess mirrors host snapshots and guest moves over WebSocket", 
     throw error;
   } finally {
     if (failed && pageLogs.length > 0) console.log(pageLogs.join("\n"));
+    await context.close();
+    await closeServer(hostServer.server);
+    await closeServer(guestServer.server);
+    await closeServer(hub.server);
+  }
+});
+
+test("single-file chess can assign black to the host and rotates local black perspective", async ({ browser }) => {
+  const hub = await startHub();
+  const hostServer = await startStaticServer(gameNetworkRoot);
+  const guestServer = await startStaticServer(gameNetworkRoot);
+  const context = await browser.newContext();
+  const host = await context.newPage();
+  const guest = await context.newPage();
+  await installChessPageStubs(host);
+  await installChessPageStubs(guest);
+
+  const room = `CHESS-COLOR-${Date.now()}`;
+  const hostUrl = `${hostServer.url}/single-file-chess-game/?transport=websocket&role=host&room=${room}&peer=chess-host-${room}&hostColor=black&signaling=${hub.url}`;
+  const guestUrl = `${guestServer.url}/single-file-chess-game/?transport=websocket&role=guest&room=${room}&peer=chess-guest-${room}&host=chess-host-${room}&signaling=${hub.url}`;
+
+  try {
+    await host.goto(hostUrl);
+    await guest.goto(guestUrl);
+
+    await expectConnected(host);
+    await expectConnected(guest);
+    await expect(host.locator("#playerBadge")).toHaveText("Nero (Tu)");
+    await expect(guest.locator("#playerBadge")).toHaveText("Bianco (Tu)");
+    await expect(host.locator("#chessboard > div").first()).toHaveAttribute("data-square", "H1");
+    await expect(guest.locator("#chessboard > div").first()).toHaveAttribute("data-square", "A8");
+  } finally {
     await context.close();
     await closeServer(hostServer.server);
     await closeServer(guestServer.server);

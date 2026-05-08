@@ -8,6 +8,10 @@
     "dev:skeleton": "vite --host 127.0.0.1 examples/skeleton-pwa",
     "dev:peer-signaling": "npm run build && node dist/src/signalingServerCli.js --host 127.0.0.1 --port 9000 --path /game-network",
     "dev:websocket-hub": "npm run build && node dist/src/webSocketHubServerCli.js --host 127.0.0.1 --port 9100",
+    "dev:websocket-hub:lan": "npm run build && node dist/src/webSocketHubServerCli.js --host 0.0.0.0 --port 9100",
+    "play:chess": "npm run build && node dist/src/gameLauncherCli.js",
+    "play:chess:single": "npm run play:chess",
+    "service": "npm run build && node dist/src/gameLauncherCli.js --service-only",
     "dev:webrtc-stack": "npm run build && node scripts/start-webrtc-stack.mjs",
     "audit": "npm audit",
     "audit:prod": "npm audit --omit=dev",
@@ -26,6 +30,7 @@
   "dependencies": {
     "peer": "^1.0.2",
     "peerjs": "^1.5.5",
+    "qrcode": "^1.5.4",
     "ws": "^8.20.0"
   }
 }
