@@ -14,6 +14,22 @@ The included chess app is an example game and a practical test bed. The network
 system is intended to remain independent from chess so future games can reuse the
 same service.
 
+## Try It Online
+
+Open the hosted dashboard:
+
+```text
+https://giuseppelevibo.github.io/game-network/
+```
+
+It uses the deployed Cloudflare relay by default:
+
+```text
+wss://game-network.giuseppe-levi.workers.dev/ws
+```
+
+Choose or generate a room, open the host page, then share the guest link.
+
 ## Quick Start For A Player Or Teacher
 
 Install once on the host machine:
