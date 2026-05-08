@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:pages": "npm run build && node scripts/prepare-pages.mjs",
     "dev:skeleton": "vite --host 127.0.0.1 examples/skeleton-pwa",
     "dev:peer-signaling": "npm run build && node dist/src/signalingServerCli.js --host 127.0.0.1 --port 9000 --path /game-network",
     "dev:websocket-hub": "npm run build && node dist/src/webSocketHubServerCli.js --host 127.0.0.1 --port 9100",
