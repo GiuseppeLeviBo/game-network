@@ -1,0 +1,1759 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scacchi Pro - JS Chess Engine</title>
+    <!-- Tailwind CSS v4 -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Mono:wght@400;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- JS Chess Engine -->
+    <script src="https://cdn.jsdelivr.net/npm/js-chess-engine@1.0.2/dist/js-chess-engine.js"></script>
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #0f172a;
+        }
+        .code-font { font-family: 'Fira Mono', monospace; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        /* Ensure pieces are not draggable ghost images */
+        img { -webkit-user-drag: none; -khtml-user-drag: none; -moz-user-drag: none; -o-user-drag: none; user-drag: none; }
+    </style>
+</head>
+<body class="text-slate-100 min-h-screen flex flex-col antialiased">
+
+    <!-- HEADER -->
+    <header class="bg-slate-900 border-b border-slate-800 shadow-lg px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <div class="bg-gradient-to-tr from-amber-500 to-amber-300 p-2.5 rounded-xl shadow-md shadow-amber-500/10">
+                <i class="fa-solid fa-chess-knight text-2xl text-slate-950"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-extrabold tracking-tight bg-gradient-to-r from-amber-400 to-amber-200 bg-clip-text text-transparent">Scacchi Pro</h1>
+                <p class="text-xs text-slate-400 font-medium">Motore di Scacchi JS &amp; IA Intelligente</p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-4">
+            <button id="muteBtn" onclick="toggleMute()" class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all duration-200" title="Attiva/Disattiva Audio">
+                <i id="muteIcon" class="fa-solid fa-volume-high"></i>
+            </button>
+            <span class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 font-semibold font-mono">v1.0.2 Engine</span>
+        </div>
+    </header>
+
+    <!-- MAIN -->
+    <main class="flex-grow max-w-7xl w-full mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        <!-- LEFT COLUMN -->
+        <div class="lg:col-span-7 flex flex-col space-y-4">
+            
+            <!-- OPPONENT CARD -->
+            <div id="opponentCard" class="bg-slate-800/80 backdrop-blur-md rounded-2xl p-4 border border-slate-700/50 shadow-md flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div id="opponentAvatar" class="w-11 h-11 rounded-xl bg-slate-700 flex items-center justify-center text-xl shadow-inner border border-slate-600">
+                        <i class="fa-solid fa-robot text-slate-300"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <span id="opponentName" class="font-bold text-slate-200">Computer (IA)</span>
+                            <span id="opponentBadge" class="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold uppercase">Lv. 2</span>
+                        </div>
+                        <div id="opponentCaptured" class="flex items-center space-x-1 mt-1 min-h-[24px]"></div>
+                    </div>
+                </div>
+                <div id="blackClockContainer" class="bg-slate-950/80 px-4 py-2 rounded-xl border border-slate-800 font-mono text-xl font-bold tracking-wider text-slate-400">
+                    <span id="blackClock">10:00</span>
+                </div>
+            </div>
+
+            <!-- CHESSBOARD -->
+            <div class="relative bg-slate-950 p-2 lg:p-3 rounded-3xl shadow-2xl border border-slate-800/60 w-full max-w-[640px] mx-auto overflow-hidden">
+                <div id="chessboard" class="grid grid-cols-8 w-full rounded-xl overflow-hidden shadow-2xl relative select-none">
+                    <!-- Dynamic -->
+                </div>
+
+                <div id="checkAlert" class="hidden absolute top-4 left-1/2 -translate-x-1/2 bg-red-500/95 text-white px-4 py-1.5 rounded-full shadow-lg text-xs font-bold uppercase tracking-wider animate-bounce pointer-events-none z-30">
+                    <i class="fa-solid fa-triangle-exclamation mr-1.5 animate-pulse"></i> Re Sotto Scacco!
+                </div>
+
+                <div id="gameOverModal" class="hidden absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center text-center p-6 z-40">
+                    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl">
+                        <div class="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-3xl text-amber-400 mx-auto mb-4">
+                            <i class="fa-solid fa-crown"></i>
+                        </div>
+                        <h2 class="text-2xl font-extrabold text-slate-100">Partita Terminata</h2>
+                        <p id="gameOverDesc" class="text-slate-400 mt-2 font-medium">Il Bianco vince per Scacco Matto.</p>
+                        <div class="mt-6 flex flex-col sm:flex-row gap-3">
+                            <button onclick="restartGame()" class="flex-grow bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-600 hover:to-amber-500 text-slate-950 font-bold px-6 py-3 rounded-xl transition-all duration-200 shadow-lg shadow-amber-500/10">
+                                Nuova Partita
+                            </button>
+                            <button onclick="closeGameOverModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold px-6 py-3 rounded-xl transition-all duration-200">
+                                Chiudi
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="promotionModal" class="hidden absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50">
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-center shadow-2xl max-w-xs w-full">
+                        <p class="text-sm font-extrabold tracking-wide uppercase text-amber-400 mb-4">Promozione Pedone</p>
+                        <div class="grid grid-cols-4 gap-3">
+                            <button onclick="selectPromotion('Q')" class="bg-slate-800 hover:bg-slate-700 p-3 rounded-xl border border-slate-700 transition-all duration-200 group flex flex-col items-center">
+                                <img id="promoQ" src="https://chessboardjs.com/img/chesspieces/wikipedia/wQ.png" class="w-12 h-12 transform group-hover:scale-110 transition-transform duration-200 pointer-events-none" alt="Regina">
+                                <span class="text-xs text-slate-400 mt-1 font-semibold pointer-events-none">Regina</span>
+                            </button>
+                            <button onclick="selectPromotion('R')" class="bg-slate-800 hover:bg-slate-700 p-3 rounded-xl border border-slate-700 transition-all duration-200 group flex flex-col items-center">
+                                <img id="promoR" src="https://chessboardjs.com/img/chesspieces/wikipedia/wR.png" class="w-12 h-12 transform group-hover:scale-110 transition-transform duration-200 pointer-events-none" alt="Torre">
+                                <span class="text-xs text-slate-400 mt-1 font-semibold pointer-events-none">Torre</span>
+                            </button>
+                            <button onclick="selectPromotion('B')" class="bg-slate-800 hover:bg-slate-700 p-3 rounded-xl border border-slate-700 transition-all duration-200 group flex flex-col items-center">
+                                <img id="promoB" src="https://chessboardjs.com/img/chesspieces/wikipedia/wB.png" class="w-12 h-12 transform group-hover:scale-110 transition-transform duration-200 pointer-events-none" alt="Alfiere">
+                                <span class="text-xs text-slate-400 mt-1 font-semibold pointer-events-none">Alfiere</span>
+                            </button>
+                            <button onclick="selectPromotion('N')" class="bg-slate-800 hover:bg-slate-700 p-3 rounded-xl border border-slate-700 transition-all duration-200 group flex flex-col items-center">
+                                <img id="promoN" src="https://chessboardjs.com/img/chesspieces/wikipedia/wN.png" class="w-12 h-12 transform group-hover:scale-110 transition-transform duration-200 pointer-events-none" alt="Cavallo">
+                                <span class="text-xs text-slate-400 mt-1 font-semibold pointer-events-none">Cavallo</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PLAYER CARD -->
+            <div id="playerCard" class="bg-slate-800/80 backdrop-blur-md rounded-2xl p-4 border border-slate-700/50 shadow-md flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div id="playerAvatar" class="w-11 h-11 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-400 text-slate-950 flex items-center justify-center text-xl font-bold shadow-md">
+                        <i class="fa-solid fa-user"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <span id="playerName" class="font-bold text-slate-200">Giocatore (Tu)</span>
+                            <span id="playerBadge" class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold uppercase">Bianco</span>
+                        </div>
+                        <div id="playerCaptured" class="flex items-center space-x-1 mt-1 min-h-[24px]"></div>
+                    </div>
+                </div>
+                <div id="whiteClockContainer" class="bg-slate-950/80 px-4 py-2 rounded-xl border border-slate-800 font-mono text-xl font-bold tracking-wider text-slate-200">
+                    <span id="whiteClock">10:00</span>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- RIGHT COLUMN -->
+        <div class="lg:col-span-5 flex flex-col space-y-6">
+            
+            <div class="bg-slate-800/80 backdrop-blur-md rounded-3xl p-5 border border-slate-700/50 shadow-xl flex flex-col space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-700/50 pb-3">
+                    <h3 class="font-extrabold text-slate-200 flex items-center">
+                        <i class="fa-solid fa-sliders text-amber-400 mr-2"></i> Configurazione Partita
+                    </h3>
+                    <div class="flex items-center space-x-1 bg-slate-950/60 p-1 rounded-xl border border-slate-800">
+                        <button onclick="setPlayMode('ai')" id="modeAiBtn" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 bg-slate-800 text-slate-200 shadow shadow-slate-900/50">IA</button>
+                        <button onclick="setPlayMode('pvp')" id="modePvpBtn" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 text-slate-400 hover:text-slate-200">PvP Locale</button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div id="difficultyGroup">
+                        <label class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1.5">Difficoltà IA</label>
+                        <select id="difficulty" onchange="setDifficulty()" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-sm text-slate-200 font-semibold focus:outline-none focus:border-amber-400 transition-colors">
+                            <option value="0">Livello 0 (Casuale)</option>
+                            <option value="1">Livello 1 (Principiante)</option>
+                            <option value="2" selected>Livello 2 (Intermedio)</option>
+                            <option value="3">Livello 3 (Avanzato)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1.5">Tempo di Gioco</label>
+                        <select id="timeControl" onchange="setTimeControl()" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-sm text-slate-200 font-semibold focus:outline-none focus:border-amber-400 transition-colors">
+                            <option value="60">1 Minuto (Bullet)</option>
+                            <option value="180">3 Minuti (Blitz)</option>
+                            <option value="300">5 Minuti (Blitz)</option>
+                            <option value="600" selected>10 Minuti (Rapido)</option>
+                            <option value="1800">30 Minuti (Classico)</option>
+                            <option value="infinite">Infinito (Senza Limite)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 pt-1">
+                    <div>
+                        <label class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1.5">Tema Scacchiera</label>
+                        <select id="boardTheme" onchange="setTheme()" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-sm text-slate-200 font-semibold focus:outline-none focus:border-amber-400 transition-colors">
+                            <option value="wood">Legno Classico</option>
+                            <option value="emerald" selected>Smeraldo / Bianco</option>
+                            <option value="midnight">Notte di Vetro</option>
+                            <option value="crimson">Cremisi / Sangue</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1.5">Stile Pezzi</label>
+                        <select id="pieceStyle" onchange="setPieceStyle()" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-sm text-slate-200 font-semibold focus:outline-none focus:border-amber-400 transition-colors">
+                            <option value="wikipedia" selected>Moderno (Wikipedia)</option>
+                            <option value="unicode">Minimalista (Unicode)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-2 pt-3 border-t border-slate-700/30">
+                    <button onclick="restartGame()" class="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold py-2.5 rounded-xl text-xs transition-colors shadow-md shadow-amber-500/5 flex items-center justify-center space-x-1.5">
+                        <i class="fa-solid fa-arrow-rotate-right"></i><span>Nuova</span>
+                    </button>
+                    <button id="undoBtn" onclick="undoMove()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold py-2.5 rounded-xl text-xs transition-colors flex items-center justify-center space-x-1.5">
+                        <i class="fa-solid fa-rotate-left"></i><span>Annulla</span>
+                    </button>
+                    <button onclick="flipBoard()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold py-2.5 rounded-xl text-xs transition-colors flex items-center justify-center space-x-1.5">
+                        <i class="fa-solid fa-arrows-up-down"></i><span>Ruota</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- NETWORK DIAGNOSTICS -->
+            <div class="bg-slate-800/80 backdrop-blur-md rounded-3xl p-5 border border-slate-700/50 shadow-xl flex flex-col space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-700/50 pb-3">
+                    <h3 class="font-extrabold text-slate-200 flex items-center">
+                        <i class="fa-solid fa-network-wired text-amber-400 mr-2"></i> Collegamento
+                    </h3>
+                    <span id="networkStatusBadge" class="text-[10px] px-2 py-0.5 rounded bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold uppercase">
+                        Offline
+                    </span>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 text-xs">
+                    <div class="bg-slate-900 rounded-2xl border border-slate-800 p-3">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Ruolo</div>
+                        <div id="networkRole" class="code-font mt-1 text-slate-200 truncate">local</div>
+                    </div>
+                    <div class="bg-slate-900 rounded-2xl border border-slate-800 p-3">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Room</div>
+                        <div id="networkRoom" class="code-font mt-1 text-slate-200 truncate">--</div>
+                    </div>
+                    <div class="bg-slate-900 rounded-2xl border border-slate-800 p-3">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Mio indirizzo</div>
+                        <div id="networkLocalAddress" class="code-font mt-1 text-slate-200 truncate">--</div>
+                    </div>
+                    <div class="bg-slate-900 rounded-2xl border border-slate-800 p-3">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Porta</div>
+                        <div id="networkLocalPort" class="code-font mt-1 text-slate-200 truncate">--</div>
+                    </div>
+                    <div class="bg-slate-900 rounded-2xl border border-slate-800 p-3">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Mio peer</div>
+                        <div id="networkPeerId" class="code-font mt-1 text-slate-200 truncate">--</div>
+                    </div>
+                    <div class="bg-slate-900 rounded-2xl border border-slate-800 p-3">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Collegato a</div>
+                        <div id="networkRemotePeer" class="code-font mt-1 text-slate-200 truncate">--</div>
+                    </div>
+                    <div class="bg-slate-900 rounded-2xl border border-slate-800 p-3">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Trasporto</div>
+                        <div id="networkTransport" class="code-font mt-1 text-slate-200 truncate">standalone</div>
+                    </div>
+                    <div class="bg-slate-900 rounded-2xl border border-slate-800 p-3">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Signaling</div>
+                        <div id="networkSignaling" class="code-font mt-1 text-slate-200 truncate">--</div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-2 pt-1">
+                    <div class="bg-slate-950/70 rounded-xl border border-slate-800 p-3 text-center">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">RTT</div>
+                        <div id="networkRtt" class="code-font mt-1 text-lg font-bold text-slate-300">--</div>
+                    </div>
+                    <div class="bg-slate-950/70 rounded-xl border border-slate-800 p-3 text-center">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Best</div>
+                        <div id="networkBestRtt" class="code-font mt-1 text-lg font-bold text-slate-300">--</div>
+                    </div>
+                    <div class="bg-slate-950/70 rounded-xl border border-slate-800 p-3 text-center">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Stabilita</div>
+                        <div id="networkOffset" class="code-font mt-1 text-lg font-bold text-slate-300">--</div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900/70 rounded-2xl border border-slate-800 p-3">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Qualita sync</span>
+                        <span id="networkQuality" class="text-[10px] font-bold uppercase text-slate-400">In attesa</span>
+                    </div>
+                    <div class="mt-2 h-2 rounded-full bg-slate-950 overflow-hidden">
+                        <div id="networkQualityBar" class="h-full w-0 bg-slate-600 transition-all duration-300"></div>
+                    </div>
+                    <div id="networkLastSync" class="code-font mt-2 text-[11px] text-slate-500 truncate">Nessun campione clock sync ricevuto.</div>
+                </div>
+            </div>
+
+            <!-- MOVE LOG -->
+            <div class="bg-slate-800/80 backdrop-blur-md rounded-3xl p-5 border border-slate-700/50 shadow-xl flex flex-col space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-700/50 pb-3">
+                    <h3 class="font-extrabold text-slate-200 flex items-center">
+                        <i class="fa-solid fa-list-ol text-amber-400 mr-2"></i> Registro Mosse
+                    </h3>
+                    <div id="analysisBadge" class="hidden text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold animate-pulse">
+                        <i class="fa-solid fa-magnifying-glass mr-1"></i> Analisi Storica
+                    </div>
+                </div>
+                <div id="moveLogContainer" class="h-44 overflow-y-auto bg-slate-900 rounded-2xl p-3 border border-slate-800">
+                    <table class="w-full text-xs">
+                        <thead>
+                            <tr class="text-slate-500 font-bold border-b border-slate-800 text-left">
+                                <th class="pb-1.5 w-12 text-center">N.</th>
+                                <th class="pb-1.5">Bianco</th>
+                                <th class="pb-1.5">Nero</th>
+                            </tr>
+                        </thead>
+                        <tbody id="moveLogBody" class="divide-y divide-slate-800/40 text-slate-300 font-mono">
+                            <tr id="emptyMovesRow">
+                                <td colspan="3" class="text-center py-8 text-slate-500 font-medium font-sans">Nessuna mossa giocata. Muovi un pezzo per iniziare!</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div id="historyControls" class="flex items-center justify-between bg-slate-900 p-2 rounded-xl border border-slate-800/50">
+                    <div class="flex space-x-1">
+                        <button onclick="goToHistoryStep(0)" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300" title="Inizio"><i class="fa-solid fa-backward-step"></i></button>
+                        <button onclick="navigateHistory(-1)" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300" title="Precedente"><i class="fa-solid fa-chevron-left"></i></button>
+                        <button onclick="navigateHistory(1)" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300" title="Successiva"><i class="fa-solid fa-chevron-right"></i></button>
+                        <button onclick="goToLiveGame()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300" title="Fine"><i class="fa-solid fa-forward-step"></i></button>
+                    </div>
+                    <button id="resumeLiveBtn" onclick="goToLiveGame()" class="hidden bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors">Torna Live</button>
+                </div>
+            </div>
+
+            <!-- FEN / SETUP -->
+            <div class="bg-slate-800/80 backdrop-blur-md rounded-3xl p-5 border border-slate-700/50 shadow-xl flex flex-col space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-700/50 pb-3">
+                    <h3 class="font-extrabold text-slate-200 flex items-center">
+                        <i class="fa-solid fa-chess text-amber-400 mr-2"></i> Strumenti &amp; Editor
+                    </h3>
+                    <button onclick="toggleSetupMode()" id="setupModeBtn" class="text-xs px-3 py-1.5 rounded-xl border border-slate-700 hover:border-amber-400 bg-slate-900 text-slate-300 hover:text-amber-400 transition-all font-bold">
+                        <i class="fa-solid fa-screwdriver-wrench mr-1"></i> Editor Libero
+                    </button>
+                </div>
+
+                <div id="setupPiecePalette" class="hidden bg-slate-900 border border-amber-500/20 p-4 rounded-2xl space-y-3">
+                    <p class="text-xs text-slate-300 font-bold mb-1">Seleziona un pezzo o la gomma, poi clicca sulla scacchiera:</p>
+                    <div class="grid grid-cols-6 gap-2">
+                        <button onclick="selectSetupPiece('P')" class="setup-piece-btn bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center justify-center" id="setup_P"><img src="https://chessboardjs.com/img/chesspieces/wikipedia/wP.png" class="w-8 h-8 pointer-events-none" alt="wP"></button>
+                        <button onclick="selectSetupPiece('N')" class="setup-piece-btn bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center justify-center" id="setup_N"><img src="https://chessboardjs.com/img/chesspieces/wikipedia/wN.png" class="w-8 h-8 pointer-events-none" alt="wN"></button>
+                        <button onclick="selectSetupPiece('B')" class="setup-piece-btn bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center justify-center" id="setup_B"><img src="https://chessboardjs.com/img/chesspieces/wikipedia/wB.png" class="w-8 h-8 pointer-events-none" alt="wB"></button>
+                        <button onclick="selectSetupPiece('R')" class="setup-piece-btn bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center justify-center" id="setup_R"><img src="https://chessboardjs.com/img/chesspieces/wikipedia/wR.png" class="w-8 h-8 pointer-events-none" alt="wR"></button>
+                        <button onclick="selectSetupPiece('Q')" class="setup-piece-btn bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center justify-center" id="setup_Q"><img src="https://chessboardjs.com/img/chesspieces/wikipedia/wQ.png" class="w-8 h-8 pointer-events-none" alt="wQ"></button>
+                        <button onclick="selectSetupPiece('K')" class="setup-piece-btn bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center justify-center" id="setup_K"><img src="https://chessboardjs.com/img/chesspieces/wikipedia/wK.png" class="w-8 h-8 pointer-events-none" alt="wK"></button>
+                        <button onclick="selectSetupPiece('p')" class="setup-piece-btn bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center justify-center" id="setup_p"><img src="https://chessboardjs.com/img/chesspieces/wikipedia/bP.png" class="w-8 h-8 pointer-events-none" alt="bP"></button>
+                        <button onclick="selectSetupPiece('n')" class="setup-piece-btn bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center justify-center" id="setup_n"><img src="https://chessboardjs.com/img/chesspieces/wikipedia/bN.png" class="w-8 h-8 pointer-events-none" alt="bN"></button>
+                        <button onclick="selectSetupPiece('b')" class="setup-piece-btn bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center justify-center" id="setup_b"><img src="https://chessboardjs.com/img/chesspieces/wikipedia/bB.png" class="w-8 h-8 pointer-events-none" alt="bB"></button>
+                        <button onclick="selectSetupPiece('r')" class="setup-piece-btn bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center justify-center" id="setup_r"><img src="https://chessboardjs.com/img/chesspieces/wikipedia/bR.png" class="w-8 h-8 pointer-events-none" alt="bR"></button>
+                        <button onclick="selectSetupPiece('q')" class="setup-piece-btn bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center justify-center" id="setup_q"><img src="https://chessboardjs.com/img/chesspieces/wikipedia/bQ.png" class="w-8 h-8 pointer-events-none" alt="bQ"></button>
+                        <button onclick="selectSetupPiece('k')" class="setup-piece-btn bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center justify-center" id="setup_k"><img src="https://chessboardjs.com/img/chesspieces/wikipedia/bK.png" class="w-8 h-8 pointer-events-none" alt="bK"></button>
+                    </div>
+                    <div class="flex items-center justify-between pt-2">
+                        <button onclick="selectSetupPiece('eraser')" class="setup-piece-btn bg-red-950 hover:bg-red-900 border border-red-700/40 text-red-300 font-bold text-xs px-3 py-2 rounded-xl flex items-center space-x-1" id="setup_eraser">
+                            <i class="fa-solid fa-eraser"></i><span>Gomma</span>
+                        </button>
+                        <div class="flex items-center space-x-2">
+                            <span class="text-xs text-slate-400 font-bold">Mossa al:</span>
+                            <button id="setupTurnBtn" onclick="toggleSetupTurn()" class="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200">Bianco (w)</button>
+                        </div>
+                    </div>
+                    <div class="flex space-x-2 pt-3 border-t border-slate-800">
+                        <button onclick="applySetup()" class="flex-grow bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs py-2.5 rounded-xl transition-all shadow-md shadow-emerald-500/5">Avvia da questa Posizione</button>
+                        <button onclick="clearSetupBoard()" class="bg-red-500/20 hover:bg-red-500/30 text-red-300 font-bold text-xs px-4 py-2.5 rounded-xl transition-all">Svuota</button>
+                    </div>
+                </div>
+
+                <div class="flex flex-col space-y-1.5">
+                    <label class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 block">Notazione FEN</label>
+                    <div class="flex space-x-2">
+                        <input id="fenInput" type="text" readonly class="flex-grow bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-400 font-mono focus:outline-none focus:border-amber-400" value="">
+                        <button onclick="copyFen()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold text-xs px-3.5 py-2 rounded-xl transition-colors flex items-center justify-center space-x-1" title="Copia FEN">
+                            <i class="fa-regular fa-copy"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="flex flex-col space-y-1.5 pt-1">
+                    <div class="flex space-x-2">
+                        <input id="loadFenInput" type="text" placeholder="Incolla FEN..." class="flex-grow bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-400" value="">
+                        <button onclick="loadFen()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold text-xs px-4 py-2 rounded-xl transition-colors flex items-center justify-center space-x-1">Carica</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <footer class="bg-slate-900 border-t border-slate-800 py-6 px-6 text-center text-xs text-slate-500 font-medium">
+        <p>© 2026 Scacchi Pro. Sviluppato con <a href="https://github.com/josefjadrny/js-chess-engine" class="text-amber-400 hover:underline" target="_blank">js-chess-engine</a>.</p>
+    </footer>
+
+    <script>
+        // =====================================================
+        // GLOBAL ENGINE ACCESS
+        // =====================================================
+        const ChessEngine = window["js-chess-engine"];
+        
+        // Game State
+        let game = null;
+        let selectedSquare = null;
+        let legalMoves = [];
+        let playerColor = 'white';
+        let playMode = 'ai';
+        let difficultyLevel = 2;
+        let boardFlipped = false;
+        let isAudioMuted = false;
+        let selectedPieceStyle = 'wikipedia';
+        let activeTheme = 'emerald';
+        let customTimeLimit = 600;
+        let clocks = { white: 600, black: 600 };
+        let timerInterval = null;
+        let gameActive = false;
+        let isAiThinking = false;
+        let isSetupModeActive = false;
+        let selectedSetupPiece = 'P';
+        let setupActiveTurn = 'white';
+        let liveMoveHistory = [];
+        let currentHistoryIndex = -1;
+        let promoFrom = null, promoTo = null;
+        let isApplyingRemoteSnapshot = false;
+        let chessNetworkRole = 'local';
+        let chessNetworkLocalColor = null;
+        let chessNetworkRemoteColor = null;
+        let chessNetworkAutoRotate = true;
+        let networkPanelInterval = null;
+        const networkDiagnostics = {
+            status: 'offline',
+            rttMs: null,
+            bestRttMs: null,
+            offsetMs: null,
+            offsetBaselineMs: null,
+            drift: null,
+            connectedPeerId: null,
+            lastSyncAt: null,
+            connectedAt: null
+        };
+
+        const unicodePieces = {
+            'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙',
+            'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟'
+        };
+
+        const pieceScores = { 'P': 1, 'N': 3, 'B': 3, 'R': 5, 'Q': 9, 'p': 1, 'n': 3, 'b': 3, 'r': 5, 'q': 9 };
+        const standardPieceCounts = { 'P': 8, 'R': 2, 'N': 2, 'B': 2, 'Q': 1, 'p': 8, 'r': 2, 'n': 2, 'b': 2, 'q': 1 };
+
+        // Sound
+        let audioCtx = null;
+        function playSound(type) {
+            if (isAudioMuted) return;
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                const now = audioCtx.currentTime;
+                if (type === 'move') {
+                    osc.type = 'sine'; osc.frequency.setValueAtTime(600, now); osc.frequency.exponentialRampToValueAtTime(250, now + 0.06);
+                    gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+                    osc.start(now); osc.stop(now + 0.06);
+                } else if (type === 'capture') {
+                    osc.type = 'triangle'; osc.frequency.setValueAtTime(350, now); osc.frequency.setValueAtTime(220, now + 0.04);
+                    gain.gain.setValueAtTime(0.25, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                    osc.start(now); osc.stop(now + 0.1);
+                } else if (type === 'check') {
+                    osc.type = 'sine'; osc.frequency.setValueAtTime(880, now); osc.frequency.setValueAtTime(1200, now + 0.08);
+                    gain.gain.setValueAtTime(0.15, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+                    osc.start(now); osc.stop(now + 0.25);
+                } else if (type === 'gameover') {
+                    osc.type = 'sine'; osc.frequency.setValueAtTime(300, now); osc.frequency.exponentialRampToValueAtTime(150, now + 0.6);
+                    gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+                    osc.start(now); osc.stop(now + 0.6);
+                }
+            } catch (e) { console.error("Audio error:", e); }
+        }
+
+        // Initialization
+        function bootChessUi() {
+            initGame();
+            initNetworkPanel();
+        }
+
+        if (document.readyState === 'loading') {
+            window.addEventListener('DOMContentLoaded', bootChessUi, { once: true });
+        } else {
+            bootChessUi();
+        }
+
+        function createGame(config) {
+            return config ? new ChessEngine.Game(config) : new ChessEngine.Game();
+        }
+
+        function initGame(config = null) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+            selectedSquare = null;
+            legalMoves = [];
+            isAiThinking = false;
+            currentHistoryIndex = -1;
+            promoFrom = null; promoTo = null;
+            
+            difficultyLevel = parseInt(document.getElementById('difficulty').value) || 2;
+            
+            try {
+                game = createGame(config);
+            } catch (err) {
+                console.error("Init error:", err);
+                game = createGame();
+            }
+
+            const timeVal = document.getElementById('timeControl').value;
+            if (timeVal === 'infinite') {
+                customTimeLimit = null;
+                document.getElementById('whiteClockContainer').classList.add('hidden');
+                document.getElementById('blackClockContainer').classList.add('hidden');
+            } else {
+                customTimeLimit = parseInt(timeVal) || 600;
+                clocks.white = customTimeLimit;
+                clocks.black = customTimeLimit;
+                document.getElementById('whiteClockContainer').classList.remove('hidden');
+                document.getElementById('blackClockContainer').classList.remove('hidden');
+                updateTimerDisplays();
+            }
+
+            setupPlayerCards();
+            liveMoveHistory = [];
+            updateMoveHistoryLog();
+            setTheme();
+            renderBoard();
+            gameActive = true;
+
+            // If AI plays White (player chose black), trigger first move
+            if (playMode === 'ai' && playerColor === 'black') {
+                const state = game.exportJson();
+                if (state.turn === 'white') {
+                    setTimeout(triggerAiMove, 500);
+                }
+            }
+        }
+
+        function restartGame() {
+            if (chessNetworkRole === 'guest') {
+                window.__CHESS_GAME_NETWORK__?.sendRestartRequest?.();
+                playSound('move');
+                return;
+            }
+            initGame();
+            playSound('move');
+            publishNetworkSnapshot();
+        }
+
+        // ====================
+        // NETWORK DIAGNOSTICS PANEL
+        // ====================
+        function initNetworkPanel() {
+            updateNetworkPanel();
+            if (networkPanelInterval) clearInterval(networkPanelInterval);
+            networkPanelInterval = setInterval(updateNetworkPanel, 1000);
+        }
+
+        function updateNetworkPanel(overrides = {}) {
+            const previousStatus = networkDiagnostics.status;
+            Object.assign(networkDiagnostics, overrides);
+            if (overrides.status === 'connected' && previousStatus !== 'connected') {
+                networkDiagnostics.connectedAt = Date.now();
+            }
+            if (overrides.status === 'disconnected' || overrides.status === 'error') {
+                networkDiagnostics.rttMs = null;
+                networkDiagnostics.bestRttMs = null;
+                networkDiagnostics.offsetMs = null;
+                networkDiagnostics.offsetBaselineMs = null;
+                networkDiagnostics.drift = null;
+                networkDiagnostics.connectedPeerId = null;
+                networkDiagnostics.lastSyncAt = null;
+                networkDiagnostics.connectedAt = null;
+            }
+            expireStaleNetworkStatus();
+            if (Number.isFinite(networkDiagnostics.offsetMs) && !Number.isFinite(networkDiagnostics.offsetBaselineMs)) {
+                networkDiagnostics.offsetBaselineMs = networkDiagnostics.offsetMs;
+            }
+            const params = new URLSearchParams(window.location.search);
+            const role = params.get('role') || 'local';
+            const room = params.get('room') || params.get('roomId') || '--';
+            const peerId = params.get('peer') || params.get('peerId') || defaultPeerId(role);
+            const remotePeer = networkDiagnostics.status === 'connected' ? (networkDiagnostics.connectedPeerId || '--') : '--';
+            const transport = params.get('transport') || 'standalone';
+            const signaling = resolveSignalingUrl(
+                params.get('signaling') || params.get('signalingUrl'),
+                transport,
+                params.get('service') || params.get('serviceUrl'),
+            );
+            const status = resolveNetworkStatus(role, transport);
+            const quality = computeNetworkQuality(networkDiagnostics.bestRttMs ?? networkDiagnostics.rttMs, networkDiagnostics.offsetMs);
+
+            setText('networkRole', role);
+            setText('networkRoom', room);
+            setText('networkLocalAddress', localAddressLabel());
+            setText('networkLocalPort', localPortLabel());
+            setText('networkPeerId', peerId);
+            setText('networkRemotePeer', remotePeer);
+            setText('networkTransport', transport);
+            setText('networkSignaling', signaling);
+            setText('networkRtt', formatMs(networkDiagnostics.rttMs));
+            setText('networkBestRtt', formatMs(networkDiagnostics.bestRttMs));
+            setText('networkOffset', formatSignedMs(clockStabilityMs()));
+            setText('networkQuality', quality.label);
+            setText('networkLastSync', networkDiagnostics.lastSyncAt ? `Ultimo sync: ${formatTime(networkDiagnostics.lastSyncAt)}` : 'Nessun campione clock sync ricevuto.');
+
+            const badge = document.getElementById('networkStatusBadge');
+            badge.innerText = status.label;
+            badge.className = `text-[10px] px-2 py-0.5 rounded border font-semibold uppercase ${status.className}`;
+
+            const bar = document.getElementById('networkQualityBar');
+            bar.style.width = `${quality.score}%`;
+            bar.className = `h-full transition-all duration-300 ${quality.barClass}`;
+        }
+
+        function setText(id, value) {
+            const element = document.getElementById(id);
+            if (element) element.innerText = value;
+        }
+
+        function defaultPeerId(role) {
+            if (role === 'host') return 'chess-host';
+            if (role === 'guest') return 'chess-guest';
+            return '--';
+        }
+
+        function defaultSignalingUrl(transport) {
+            if (transport === 'native-webrtc' || transport === 'websocket') return `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host || '127.0.0.1:9201'}/ws`;
+            if (transport === 'peerjs') return '127.0.0.1:9000/game-network';
+            return '--';
+        }
+
+        function resolveSignalingUrl(value, transport, serviceUrl = null) {
+            const trimmed = typeof value === 'string' ? value.trim() : '';
+            if (trimmed && trimmed.toLowerCase() !== 'auto') return trimmed;
+            if ((transport === 'native-webrtc' || transport === 'websocket') && serviceUrl) {
+                return signalingUrlFromService(serviceUrl);
+            }
+            return defaultSignalingUrl(transport);
+        }
+
+        function signalingUrlFromService(serviceUrl) {
+            const parsed = new URL(serviceUrl, window.location.href);
+            const protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+            return `${protocol}//${parsed.host}/ws`;
+        }
+
+        function resolveNetworkStatus(role, transport) {
+            const connected = networkDiagnostics.status === 'connected';
+            if (connected) {
+                return { label: 'Collegato', className: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' };
+            }
+            if (networkDiagnostics.status === 'connecting') {
+                return { label: 'Connessione', className: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' };
+            }
+            if (networkDiagnostics.status === 'listening') {
+                return { label: 'In ascolto', className: 'bg-amber-500/10 text-amber-400 border-amber-500/20' };
+            }
+            if (networkDiagnostics.status === 'error') {
+                return { label: 'Errore', className: 'bg-red-500/10 text-red-400 border-red-500/20' };
+            }
+            if (networkDiagnostics.status === 'disconnected' || networkDiagnostics.status === 'stale') {
+                return { label: 'Disconnesso', className: 'bg-red-500/10 text-red-400 border-red-500/20' };
+            }
+            if (transport !== 'standalone' || role === 'host' || role === 'guest') {
+                return { label: role === 'host' ? 'In ascolto' : 'Pronto', className: 'bg-amber-500/10 text-amber-400 border-amber-500/20' };
+            }
+            return { label: 'Offline', className: 'bg-slate-500/10 text-slate-400 border-slate-500/20' };
+        }
+
+        function expireStaleNetworkStatus() {
+            if (networkDiagnostics.status !== 'connected') return;
+            const now = Date.now();
+            const lastLiveAt = networkDiagnostics.lastSyncAt ?? networkDiagnostics.connectedAt;
+            if (!lastLiveAt || now - lastLiveAt <= 5000) return;
+            networkDiagnostics.status = 'stale';
+            networkDiagnostics.rttMs = null;
+            networkDiagnostics.bestRttMs = null;
+            networkDiagnostics.offsetMs = null;
+            networkDiagnostics.offsetBaselineMs = null;
+            networkDiagnostics.drift = null;
+            networkDiagnostics.connectedPeerId = null;
+            networkDiagnostics.lastSyncAt = null;
+        }
+
+        function localAddressLabel() {
+            if (window.location.protocol === 'file:') return 'file locale';
+            return window.location.hostname || 'localhost';
+        }
+
+        function localPortLabel() {
+            if (window.location.protocol === 'file:') return '--';
+            return window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+        }
+
+        function formatMs(value) {
+            return Number.isFinite(value) ? `${Math.round(value)}ms` : '--';
+        }
+
+        function formatSignedMs(value) {
+            if (!Number.isFinite(value)) return '--';
+            const rounded = Math.round(value * 10) / 10;
+            return `${rounded >= 0 ? '+' : ''}${rounded}ms`;
+        }
+
+        function clockStabilityMs() {
+            if (!Number.isFinite(networkDiagnostics.offsetMs) || !Number.isFinite(networkDiagnostics.offsetBaselineMs)) return null;
+            return networkDiagnostics.offsetMs - networkDiagnostics.offsetBaselineMs;
+        }
+
+        function formatTime(value) {
+            if (value instanceof Date) return value.toLocaleTimeString();
+            if (typeof value === 'number') return new Date(value).toLocaleTimeString();
+            return String(value);
+        }
+
+        function computeNetworkQuality(rttMs, offsetMs) {
+            if (!Number.isFinite(rttMs)) {
+                return { label: 'In attesa', score: 0, barClass: 'bg-slate-600' };
+            }
+            const score = Math.max(0, Math.min(100, 100 - rttMs * 1.6));
+            if (score >= 75) return { label: 'Ottima', score, barClass: 'bg-emerald-400' };
+            if (score >= 45) return { label: 'Giocabile', score, barClass: 'bg-amber-400' };
+            return { label: 'Instabile', score, barClass: 'bg-red-400' };
+        }
+
+        /*
+         * Game Network diagnostics API used by the example and by browser tests.
+         *
+         * This object is not part of the chess engine. It is a thin UI bridge:
+         * the networking bootstrap below calls update(...) when transport,
+         * room, peer, RTT, and clock-sync information changes.
+         *
+         * A different game can expose a similar diagnostics bridge, or ignore
+         * diagnostics entirely and use HostRoom / GuestRoom directly.
+         */
+        window.__CHESS_NETWORK_DIAGNOSTICS__ = {
+            update: updateNetworkPanel,
+            getSnapshot: () => ({
+                role: document.getElementById('networkRole')?.innerText,
+                room: document.getElementById('networkRoom')?.innerText,
+                localAddress: document.getElementById('networkLocalAddress')?.innerText,
+                localPort: document.getElementById('networkLocalPort')?.innerText,
+                peerId: document.getElementById('networkPeerId')?.innerText,
+                remotePeer: document.getElementById('networkRemotePeer')?.innerText,
+                transport: document.getElementById('networkTransport')?.innerText,
+                signaling: document.getElementById('networkSignaling')?.innerText,
+                rtt: document.getElementById('networkRtt')?.innerText,
+                bestRtt: document.getElementById('networkBestRtt')?.innerText,
+                offset: document.getElementById('networkOffset')?.innerText,
+                quality: document.getElementById('networkQuality')?.innerText,
+            })
+        };
+        window.__CHESS_RESOLVE_SIGNALING_URL__ = resolveSignalingUrl;
+
+        /*
+         * Chess <-> Game Network adapter.
+         *
+         * This is the most important integration seam in the single-file demo.
+         * The chess UI keeps its original state and rendering code; the network
+         * layer only talks to this adapter.
+         *
+         * Required responsibilities for any game adapter:
+         * - expose an authoritative snapshot for the host;
+         * - apply a host snapshot on guests;
+         * - apply a remote guest input on the host;
+         * - prevent remote updates from being re-published as local moves.
+         */
+        window.__CHESS_GAME_ADAPTER__ = {
+            setNetworkRole: (role, localColor = null, options = {}) => {
+                chessNetworkRole = role;
+                const normalizedColor = normalizeNetworkColor(localColor);
+                if (normalizedColor) {
+                    chessNetworkLocalColor = normalizedColor;
+                    chessNetworkRemoteColor = oppositeNetworkColor(normalizedColor);
+                } else if ((role === 'host' || role === 'guest') && !chessNetworkLocalColor) {
+                    chessNetworkLocalColor = role === 'host' ? 'white' : 'black';
+                    chessNetworkRemoteColor = oppositeNetworkColor(chessNetworkLocalColor);
+                }
+                if (typeof options.autoRotate === 'boolean') {
+                    chessNetworkAutoRotate = options.autoRotate;
+                }
+                if (role === 'host' || role === 'guest') {
+                    setPlayMode('pvp');
+                    applyNetworkBoardPerspective();
+                    setupPlayerCards();
+                }
+            },
+            getSnapshot: () => ({
+                fen: game?.exportFEN() ?? '',
+                moveHistory: liveMoveHistory,
+                clocks,
+                gameActive,
+            }),
+            applySnapshot: (snapshot) => {
+                if (!snapshot?.fen) return;
+                isApplyingRemoteSnapshot = true;
+                try {
+                    clearInterval(timerInterval);
+                    timerInterval = null;
+                    game = createGame(snapshot.fen);
+                    liveMoveHistory = Array.isArray(snapshot.moveHistory) ? snapshot.moveHistory : [];
+                    clocks = snapshot.clocks ? { ...snapshot.clocks } : clocks;
+                    gameActive = snapshot.gameActive !== false;
+                    selectedSquare = null;
+                    legalMoves = [];
+                    currentHistoryIndex = -1;
+                    document.getElementById('analysisBadge').classList.add('hidden');
+                    document.getElementById('resumeLiveBtn').classList.add('hidden');
+                    updateTimerDisplays();
+                    updateMoveHistoryLog();
+                    renderBoard();
+                } catch (error) {
+                    console.error('Remote chess snapshot rejected:', error);
+                } finally {
+                    isApplyingRemoteSnapshot = false;
+                }
+            },
+            applyMove: (move) => {
+                if (!move?.from || !move?.to) return false;
+                isApplyingRemoteSnapshot = true;
+                try {
+                    const movingPiece = game.exportJson().pieces[move.from];
+                    const isCapture = game.exportJson().pieces[move.to] !== undefined;
+                    const beforeFen = game.exportFEN();
+                    game.move(move.from, move.to);
+                    if (move.promotion && move.promotion !== 'Q') {
+                        const state = game.exportJson();
+                        const color = state.turn === 'black' ? 'white' : 'black';
+                        const pieceChar = color === 'white' ? move.promotion.toUpperCase() : move.promotion.toLowerCase();
+                        game.setPiece(move.to, pieceChar);
+                    }
+                    liveMoveHistory.push({
+                        from: move.from,
+                        to: move.to,
+                        piece: movingPiece,
+                        isCapture,
+                        fenBefore: beforeFen,
+                        promotion: move.promotion,
+                    });
+                    selectedSquare = null;
+                    legalMoves = [];
+                    renderBoard();
+                    updateMoveHistoryLog();
+                    checkGameOver();
+                    return true;
+                } catch (error) {
+                    console.error('Remote chess move rejected:', error);
+                    return false;
+                } finally {
+                    isApplyingRemoteSnapshot = false;
+                }
+            },
+        };
+
+        function publishNetworkMove(move) {
+            // Local chess input reaches this function after the local board has
+            // already accepted the move. The host republishes a snapshot; the
+            // guest sends a small input envelope to the host.
+            if (isApplyingRemoteSnapshot) return;
+            window.__CHESS_GAME_NETWORK__?.sendLocalMove?.(move);
+        }
+
+        function publishNetworkSnapshot() {
+            // Host-only helper used when a local host action changes the whole
+            // board state, for example new game or FEN load.
+            if (isApplyingRemoteSnapshot) return;
+            window.__CHESS_GAME_NETWORK__?.sendSnapshot?.();
+        }
+
+        function setupPlayerCards() {
+            const opName = document.getElementById('opponentName');
+            const opBadge = document.getElementById('opponentBadge');
+            const plBadge = document.getElementById('playerBadge');
+            
+            if (playMode === 'ai') {
+                opName.innerText = "Computer (IA)";
+                opBadge.innerText = `Lv. ${difficultyLevel}`;
+                opBadge.className = "text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold uppercase";
+                plBadge.innerText = playerColor === 'white' ? "Bianco (Tu)" : "Nero (Tu)";
+                plBadge.className = "text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold uppercase";
+            } else {
+                const isNetworkHost = chessNetworkRole === 'host';
+                const isNetworkGuest = chessNetworkRole === 'guest';
+                const localColor = chessNetworkLocalColor ?? (isNetworkGuest ? 'black' : 'white');
+                const remoteColor = chessNetworkRemoteColor ?? oppositeNetworkColor(localColor);
+                const remoteRole = isNetworkGuest ? "Host" : "Peer";
+                opName.innerText = isNetworkHost || isNetworkGuest ? `${colorLabel(remoteColor)} (${remoteRole})` : "Nero (Loc)";
+                opBadge.innerText = isNetworkHost || isNetworkGuest ? "Peer" : "Avversario";
+                opBadge.className = "text-[10px] px-2 py-0.5 rounded bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold uppercase";
+                plBadge.innerText = isNetworkHost || isNetworkGuest ? `${colorLabel(localColor)} (Tu)` : "Bianco (Loc)";
+                plBadge.className = "text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold uppercase";
+            }
+        }
+
+        function normalizeNetworkColor(value) {
+            if (typeof value !== 'string') return null;
+            const normalized = value.trim().toLowerCase();
+            if (normalized === 'white' || normalized === 'bianco') return 'white';
+            if (normalized === 'black' || normalized === 'nero') return 'black';
+            return null;
+        }
+
+        function oppositeNetworkColor(color) {
+            return color === 'black' ? 'white' : 'black';
+        }
+
+        function colorLabel(color) {
+            return color === 'black' ? 'Nero' : 'Bianco';
+        }
+
+        function applyNetworkBoardPerspective() {
+            if (!chessNetworkAutoRotate || !chessNetworkLocalColor) return;
+            boardFlipped = chessNetworkLocalColor === 'black';
+            renderBoard();
+        }
+
+        // Themes
+        const themes = {
+            wood: { light: 'bg-amber-100 text-amber-900', dark: 'bg-amber-800 text-amber-100', selected: 'ring-4 ring-amber-400 ring-inset bg-amber-200/50', lastMove: 'bg-yellow-300/40', targetDot: 'bg-amber-500/60' },
+            emerald: { light: 'bg-slate-200 text-slate-800', dark: 'bg-emerald-700 text-slate-200', selected: 'ring-4 ring-yellow-300 ring-inset bg-emerald-200/40', lastMove: 'bg-yellow-200/40', targetDot: 'bg-emerald-500/60' },
+            midnight: { light: 'bg-slate-300 text-slate-900', dark: 'bg-slate-700 text-slate-300', selected: 'ring-4 ring-cyan-400 ring-inset bg-slate-500/50', lastMove: 'bg-cyan-200/40', targetDot: 'bg-cyan-500/60' },
+            crimson: { light: 'bg-slate-100 text-slate-800', dark: 'bg-red-800 text-slate-100', selected: 'ring-4 ring-orange-400 ring-inset bg-red-200/50', lastMove: 'bg-orange-200/30', targetDot: 'bg-red-500/60' }
+        };
+
+        function setTheme() { activeTheme = document.getElementById('boardTheme').value; renderBoard(); }
+        function setPieceStyle() { selectedPieceStyle = document.getElementById('pieceStyle').value; renderBoard(); }
+        
+        function setPlayMode(mode) {
+            playMode = mode;
+            document.getElementById('modeAiBtn').className = mode === 'ai' ? 'px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 bg-slate-800 text-slate-200 shadow shadow-slate-900/50' : 'px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 text-slate-400 hover:text-slate-200';
+            document.getElementById('modePvpBtn').className = mode === 'pvp' ? 'px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 bg-slate-800 text-slate-200 shadow shadow-slate-900/50' : 'px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 text-slate-400 hover:text-slate-200';
+            const dg = document.getElementById('difficultyGroup');
+            if (mode === 'pvp') dg.classList.add('opacity-40', 'pointer-events-none');
+            else dg.classList.remove('opacity-40', 'pointer-events-none');
+            initGame();
+        }
+
+        function setDifficulty() { difficultyLevel = parseInt(document.getElementById('difficulty').value) || 2; setupPlayerCards(); }
+        function setTimeControl() { initGame(); }
+        function flipBoard() { boardFlipped = !boardFlipped; renderBoard(); }
+        function toggleMute() { isAudioMuted = !isAudioMuted; document.getElementById('muteIcon').className = isAudioMuted ? "fa-solid fa-volume-xmark text-red-400" : "fa-solid fa-volume-high text-slate-300"; }
+
+        // Timer
+        function startTimer() {
+            if (timerInterval) return;
+            timerInterval = setInterval(() => {
+                if (!gameActive || isAiThinking) return;
+                const turn = game.exportJson().turn;
+                if (turn === 'white') { if (clocks.white > 0) clocks.white--; else handleTimeOut('white'); }
+                else { if (clocks.black > 0) clocks.black--; else handleTimeOut('black'); }
+                updateTimerDisplays();
+            }, 1000);
+        }
+        function updateTimerDisplays() {
+            if (!customTimeLimit) return;
+            const fmt = s => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`;
+            document.getElementById('whiteClock').innerText = fmt(clocks.white);
+            document.getElementById('blackClock').innerText = fmt(clocks.black);
+            document.getElementById('whiteClockContainer').className = clocks.white <= 30 ? "bg-red-950/80 px-4 py-2 rounded-xl border border-red-800 font-mono text-xl font-bold tracking-wider text-red-400 animate-pulse" : "bg-slate-950/80 px-4 py-2 rounded-xl border border-slate-800 font-mono text-xl font-bold tracking-wider text-slate-200";
+            document.getElementById('blackClockContainer').className = clocks.black <= 30 ? "bg-red-950/80 px-4 py-2 rounded-xl border border-red-800 font-mono text-xl font-bold tracking-wider text-red-400 animate-pulse" : "bg-slate-950/80 px-4 py-2 rounded-xl border border-slate-800 font-mono text-xl font-bold tracking-wider text-slate-400";
+        }
+        function handleTimeOut(loser) { clearInterval(timerInterval); timerInterval = null; gameActive = false; showGameOver(`Vittoria per ${loser === 'white' ? 'Nero' : 'Bianco'}! Tempo scaduto.`); }
+
+        // ====================
+        // RENDER BOARD
+        // ====================
+        function renderBoard() {
+            if (!game) return;
+            const container = document.getElementById('chessboard');
+            container.innerHTML = '';
+            
+            const state = game.exportJson();
+            const pieces = state.pieces;
+            const ranks = boardFlipped ? ['1','2','3','4','5','6','7','8'] : ['8','7','6','5','4','3','2','1'];
+            const files = boardFlipped ? ['H','G','F','E','D','C','B','A'] : ['A','B','C','D','E','F','G','H'];
+            
+            document.getElementById('fenInput').value = game.exportFEN();
+            
+            let lastFrom = null, lastTo = null;
+            if (liveMoveHistory.length > 0 && currentHistoryIndex === -1) {
+                const last = liveMoveHistory[liveMoveHistory.length - 1];
+                lastFrom = last.from?.toUpperCase();
+                lastTo = last.to?.toUpperCase();
+            } else if (currentHistoryIndex !== -1 && currentHistoryIndex < liveMoveHistory.length) {
+                const move = liveMoveHistory[currentHistoryIndex];
+                lastFrom = move.from?.toUpperCase();
+                lastTo = move.to?.toUpperCase();
+            }
+            
+            let checkKingSquare = null;
+            if (state.check) {
+                const kingChar = state.turn === 'white' ? 'K' : 'k';
+                checkKingSquare = Object.keys(pieces).find(sq => pieces[sq] === kingChar);
+            }
+            document.getElementById('checkAlert').classList.toggle('hidden', !state.check);
+            
+            updateCapturedState(pieces);
+            
+            for (let r = 0; r < 8; r++) {
+                for (let f = 0; f < 8; f++) {
+                    const sq = files[f] + ranks[r];
+                    const piece = pieces[sq];
+                    const isLight = (r + f) % 2 === 0;
+                    const colorCls = isLight ? themes[activeTheme].light : themes[activeTheme].dark;
+                    
+                    const cell = document.createElement('div');
+                    cell.className = `relative flex items-center justify-center cursor-pointer aspect-square ${colorCls}`;
+                    cell.dataset.square = sq;
+                    cell.onclick = () => onSquareClick(sq);
+                    
+                    // Highlights
+                    if (selectedSquare === sq) {
+                        const ov = document.createElement('div');
+                        ov.className = `absolute inset-0 ${themes[activeTheme].selected} z-10`;
+                        cell.appendChild(ov);
+                    } else if (sq === lastFrom || sq === lastTo) {
+                        const ov = document.createElement('div');
+                        ov.className = `absolute inset-0 ${themes[activeTheme].lastMove}`;
+                        cell.appendChild(ov);
+                    }
+                    if (sq === checkKingSquare) {
+                        const ov = document.createElement('div');
+                        ov.className = "absolute inset-0 ring-4 ring-red-500 ring-inset bg-red-500/20 z-10 animate-pulse";
+                        cell.appendChild(ov);
+                    }
+                    
+                    // Piece
+                    if (piece) {
+                        if (selectedPieceStyle === 'wikipedia') {
+                            const img = document.createElement('img');
+                            const c = piece === piece.toUpperCase() ? 'w' : 'b';
+                            img.src = `https://chessboardjs.com/img/chesspieces/wikipedia/${c}${piece.toUpperCase()}.png`;
+                            img.className = "w-[80%] h-[80%] object-contain select-none pointer-events-none";
+                            img.draggable = false;
+                            cell.appendChild(img);
+                        } else {
+                            const span = document.createElement('span');
+                            span.innerText = unicodePieces[piece] || '';
+                            const tc = piece === piece.toUpperCase() ? 'text-slate-100 drop-shadow-[0_2px_3px_rgba(0,0,0,0.8)]' : 'text-slate-950 drop-shadow-[0_1px_1px_rgba(255,255,255,0.4)]';
+                            span.className = `text-3xl sm:text-4xl md:text-5xl font-semibold select-none pointer-events-none ${tc}`;
+                            cell.appendChild(span);
+                        }
+                    }
+                    
+                    // Legal moves dots
+                    if (legalMoves.includes(sq)) {
+                        const dot = document.createElement('div');
+                        if (piece) dot.className = "absolute w-[80%] h-[80%] rounded-full border-4 border-amber-500/80 z-20 pointer-events-none";
+                        else dot.className = `absolute w-[25%] h-[25%] rounded-full ${themes[activeTheme].targetDot} z-20 pointer-events-none`;
+                        cell.appendChild(dot);
+                    }
+                    
+                    // Coordinates
+                    if (f === 0) {
+                        const lb = document.createElement('span');
+                        lb.innerText = ranks[r];
+                        lb.className = 'absolute top-0.5 left-1 text-[9px] font-bold opacity-40 select-none pointer-events-none';
+                        cell.appendChild(lb);
+                    }
+                    if (r === 7) {
+                        const lb = document.createElement('span');
+                        lb.innerText = files[f].toLowerCase();
+                        lb.className = 'absolute bottom-0.5 right-1 text-[9px] font-bold opacity-40 select-none pointer-events-none';
+                        cell.appendChild(lb);
+                    }
+                    
+                    container.appendChild(cell);
+                }
+            }
+        }
+
+        function updateCapturedState(pieces) {
+            const cur = {};
+            Object.keys(standardPieceCounts).forEach(k => cur[k] = 0);
+            Object.values(pieces).forEach(p => { if (cur[p] !== undefined) cur[p]++; });
+            
+            const capWhite = []; ['p','r','n','b','q'].forEach(p => { for(let i=0; i<standardPieceCounts[p]-cur[p]; i++) capWhite.push(p); });
+            const capBlack = []; ['P','R','N','B','Q'].forEach(p => { for(let i=0; i<standardPieceCounts[p]-cur[p]; i++) capBlack.push(p); });
+            
+            let ws = 0, bs = 0;
+            Object.values(pieces).forEach(p => { const s = pieceScores[p]||0; if(p===p.toUpperCase())ws+=s; else bs+=s; });
+            const bal = ws - bs;
+            
+            const wc = document.getElementById('playerCaptured'); wc.innerHTML = '';
+            capWhite.forEach(p => { const img = document.createElement('img'); img.src = `https://chessboardjs.com/img/chesspieces/wikipedia/b${p.toUpperCase()}.png`; img.className = "w-5 h-5 object-contain opacity-80"; wc.appendChild(img); });
+            if (bal > 0) { const b = document.createElement('span'); b.className = "text-[10px] ml-1 px-1.5 rounded bg-emerald-500/10 text-emerald-400 font-bold font-mono"; b.innerText = `+${bal}`; wc.appendChild(b); }
+            
+            const bc = document.getElementById('opponentCaptured'); bc.innerHTML = '';
+            capBlack.forEach(p => { const img = document.createElement('img'); img.src = `https://chessboardjs.com/img/chesspieces/wikipedia/w${p.toUpperCase()}.png`; img.className = "w-5 h-5 object-contain opacity-80"; bc.appendChild(img); });
+            if (bal < 0) { const b = document.createElement('span'); b.className = "text-[10px] ml-1 px-1.5 rounded bg-red-500/10 text-red-400 font-bold font-mono"; b.innerText = `+${Math.abs(bal)}`; bc.appendChild(b); }
+        }
+
+        // ====================
+        // INPUT HANDLING
+        // ====================
+        function onSquareClick(square) {
+            if (isSetupModeActive) { handleSetupClick(square); return; }
+            if (currentHistoryIndex !== -1) { alert("Modalità analisi: clicca 'Torna Live' per giocare"); return; }
+            if (!gameActive || isAiThinking) return;
+            
+            const state = game.exportJson();
+            const pieces = state.pieces;
+            const piece = pieces[square];
+            const isWhiteTurn = state.turn === 'white';
+            
+            // Click on legal move target
+            if (legalMoves.includes(square)) {
+                const fromPiece = pieces[selectedSquare];
+                const isCapture = pieces[square] !== undefined;
+                const isPawn = fromPiece && fromPiece.toUpperCase() === 'P';
+                const isLastRank = square.endsWith('8') || square.endsWith('1');
+                
+                if (isPawn && isLastRank) {
+                    promoFrom = selectedSquare; promoTo = square;
+                    openPromotionModal(fromPiece === fromPiece.toUpperCase() ? 'white' : 'black');
+                    return;
+                }
+                doMove(selectedSquare, square, isCapture);
+                return;
+            }
+            
+            // Select piece
+            if (piece) {
+                const isWhitePiece = piece === piece.toUpperCase();
+                if ((isWhiteTurn && !isWhitePiece) || (!isWhiteTurn && isWhitePiece)) {
+                    selectedSquare = null; legalMoves = []; renderBoard(); return;
+                }
+                if (playMode === 'ai') {
+                    if (playerColor === 'white' && !isWhitePiece) return;
+                    if (playerColor === 'black' && isWhitePiece) return;
+                }
+                if (chessNetworkLocalColor === 'white' && !isWhitePiece) return;
+                if (chessNetworkLocalColor === 'black' && isWhitePiece) return;
+                selectedSquare = square;
+                try {
+                    const m = game.moves(square);
+                    legalMoves = Array.isArray(m) ? m : [];
+                } catch (e) { legalMoves = []; console.error("moves() error:", e); }
+                renderBoard();
+            } else {
+                selectedSquare = null; legalMoves = []; renderBoard();
+            }
+        }
+
+        function doMove(from, to, isCapture) {
+            try {
+                const beforeFen = game.exportFEN();
+                const movingPiece = game.exportJson().pieces[from];
+                
+                playSound(isCapture ? 'capture' : 'move');
+                game.move(from, to);
+                
+                liveMoveHistory.push({ from, to, piece: movingPiece, isCapture, fenBefore: beforeFen });
+                selectedSquare = null; legalMoves = [];
+                renderBoard(); updateMoveHistoryLog();
+                publishNetworkMove({ from, to });
+                
+                if (customTimeLimit) startTimer();
+                if (checkGameOver()) return;
+                
+                if (playMode === 'ai') {
+                    isAiThinking = true;
+                    document.getElementById('undoBtn').disabled = true;
+                    document.getElementById('undoBtn').classList.add('opacity-40');
+                    setTimeout(aiThinkAndMove, 300);
+                }
+            } catch (err) {
+                console.error("Move error:", err);
+                selectedSquare = null; legalMoves = []; renderBoard();
+            }
+        }
+
+        // ====================
+        // AI LOGIC - ROBUST
+        // ====================
+        function aiThinkAndMove() {
+            try {
+                const stateBefore = game.exportJson();
+                
+                // Check if game already ended before AI moves
+                if (stateBefore.isFinished) {
+                    console.log("AI: Game already finished");
+                    finishAiTurn();
+                    return;
+                }
+                
+                // Get AI move
+                const aiResult = game.aiMove(difficultyLevel);
+                console.log("AI result:", aiResult);
+                
+                // Validate result
+                if (!aiResult || typeof aiResult !== 'object') {
+                    console.error("AI returned invalid result:", aiResult);
+                    finishAiTurn();
+                    return;
+                }
+                
+                const keys = Object.keys(aiResult);
+                if (keys.length === 0) {
+                    console.error("AI returned empty move");
+                    finishAiTurn();
+                    return;
+                }
+                
+                const from = keys[0];
+                const to = aiResult[from];
+                
+                if (!from || !to) {
+                    console.error("AI returned invalid move format:", from, to);
+                    finishAiTurn();
+                    return;
+                }
+                
+                const movingPiece = stateBefore.pieces[from];
+                const isCapture = stateBefore.pieces[to] !== undefined;
+                
+                playSound(isCapture ? 'capture' : 'move');
+                
+                // aiMove already executed the move internally! Do NOT call game.move again.
+                // Just record it.
+                liveMoveHistory.push({ 
+                    from: from.toUpperCase(), 
+                    to: to.toUpperCase(), 
+                    piece: movingPiece, 
+                    isCapture, 
+                    fenBefore: stateBefore.fen || game.exportFEN() // Use current FEN as "before" for next undo
+                });
+                
+                updateMoveHistoryLog();
+                checkGameOver();
+                
+            } catch (err) {
+                console.error("AI Error:", err);
+            } finally {
+                finishAiTurn();
+            }
+        }
+        
+        function finishAiTurn() {
+            isAiThinking = false;
+            document.getElementById('undoBtn').disabled = false;
+            document.getElementById('undoBtn').classList.remove('opacity-40');
+            renderBoard();
+        }
+
+        function checkGameOver() {
+            const state = game.exportJson();
+            if (state.isFinished || state.checkMate) {
+                clearInterval(timerInterval); timerInterval = null; gameActive = false;
+                playSound('gameover');
+                if (state.checkMate) {
+                    const loser = state.turn;
+                    showGameOver(`Scacco Matto! ${loser === 'white' ? 'Il Nero' : 'Il Bianco'} vince!`);
+                } else {
+                    showGameOver("Partita Patta!");
+                }
+                return true;
+            }
+            if (state.check) playSound('check');
+            return false;
+        }
+
+        function showGameOver(msg) { document.getElementById('gameOverDesc').innerText = msg; document.getElementById('gameOverModal').classList.remove('hidden'); }
+        function closeGameOverModal() { document.getElementById('gameOverModal').classList.add('hidden'); }
+
+        // Promotion
+        function openPromotionModal(color) {
+            const p = color === 'white' ? 'w' : 'b';
+            document.getElementById('promoQ').src = `https://chessboardjs.com/img/chesspieces/wikipedia/${p}Q.png`;
+            document.getElementById('promoR').src = `https://chessboardjs.com/img/chesspieces/wikipedia/${p}R.png`;
+            document.getElementById('promoB').src = `https://chessboardjs.com/img/chesspieces/wikipedia/${p}B.png`;
+            document.getElementById('promoN').src = `https://chessboardjs.com/img/chesspieces/wikipedia/${p}N.png`;
+            document.getElementById('promotionModal').classList.remove('hidden');
+        }
+        function selectPromotion(type) {
+            document.getElementById('promotionModal').classList.add('hidden');
+            if (!promoFrom || !promoTo) return;
+            try {
+                const beforeFen = game.exportFEN();
+                const isCapture = game.exportJson().pieces[promoTo] !== undefined;
+                game.move(promoFrom, promoTo);
+                const state = game.exportJson();
+                const color = state.turn === 'black' ? 'white' : 'black';
+                const pieceChar = color === 'white' ? type.toUpperCase() : type.toLowerCase();
+                if (type !== 'Q') game.setPiece(promoTo, pieceChar);
+                liveMoveHistory.push({ from: promoFrom, to: promoTo, piece: color === 'white' ? 'P' : 'p', isCapture, fenBefore: beforeFen, promotion: type });
+                publishNetworkMove({ from: promoFrom, to: promoTo, promotion: type });
+                promoFrom = null; promoTo = null;
+                playSound('move'); selectedSquare = null; legalMoves = [];
+                renderBoard(); updateMoveHistoryLog();
+                if (customTimeLimit) startTimer();
+                if (!checkGameOver() && playMode === 'ai') {
+                    isAiThinking = true;
+                    document.getElementById('undoBtn').disabled = true;
+                    document.getElementById('undoBtn').classList.add('opacity-40');
+                    setTimeout(aiThinkAndMove, 300);
+                }
+            } catch (err) { console.error("Promotion error:", err); }
+        }
+
+        // Undo
+        function undoMove() {
+            if (isAiThinking || liveMoveHistory.length === 0) return;
+            clearInterval(timerInterval); timerInterval = null;
+            if (playMode === 'ai') {
+                if (liveMoveHistory.length >= 2) {
+                    liveMoveHistory.pop();
+                    const um = liveMoveHistory.pop();
+                    initGame(um.fenBefore);
+                } else { initGame(); }
+            } else {
+                const lm = liveMoveHistory.pop();
+                initGame(lm.fenBefore);
+            }
+            playSound('move');
+        }
+
+        // Move Log
+        function updateMoveHistoryLog() {
+            const tbody = document.getElementById('moveLogBody');
+            tbody.innerHTML = '';
+            if (liveMoveHistory.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center py-8 text-slate-500 font-medium font-sans">Nessuna mossa giocata. Muovi un pezzo per iniziare!</td></tr>';
+                return;
+            }
+            for (let i = 0; i < liveMoveHistory.length; i += 2) {
+                const n = Math.floor(i / 2) + 1;
+                const wm = liveMoveHistory[i];
+                const bm = liveMoveHistory[i + 1];
+                const wStr = formatMove(wm);
+                const bStr = bm ? formatMove(bm) : '';
+                const wCls = (currentHistoryIndex === i) ? 'text-amber-400 font-bold bg-amber-500/10 rounded px-1' : 'hover:text-amber-400 cursor-pointer';
+                const bCls = bm && (currentHistoryIndex === i + 1) ? 'text-amber-400 font-bold bg-amber-500/10 rounded px-1' : 'hover:text-amber-400 cursor-pointer';
+                const tr = document.createElement('tr');
+                tr.className = "border-b border-slate-800/20 text-slate-300 font-medium";
+                tr.innerHTML = `<td class="py-2 text-center text-slate-500 font-bold">${n}</td><td class="py-2"><span class="${wCls}" onclick="goToHistoryStep(${i})">${wStr}</span></td><td class="py-2"><span class="${bCls}" onclick="goToHistoryStep(${i+1})">${bStr}</span></td>`;
+                tbody.appendChild(tr);
+            }
+            if (currentHistoryIndex === -1) document.getElementById('moveLogContainer').scrollTop = document.getElementById('moveLogContainer').scrollHeight;
+        }
+        function formatMove(m) { if (!m) return ''; const p = m.piece?.toUpperCase() === 'P' ? '' : (m.piece?.toUpperCase() || ''); const x = m.isCapture ? 'x' : '-'; const pr = m.promotion ? `=${m.promotion}` : ''; return `${p}${m.from?.toLowerCase()}${x}${m.to?.toLowerCase()}${pr}`; }
+
+        // History Navigation
+        function goToHistoryStep(idx) {
+            if (idx < 0 || idx >= liveMoveHistory.length) return;
+            currentHistoryIndex = idx;
+            clearInterval(timerInterval); timerInterval = null;
+            let targetFen;
+            if (idx === liveMoveHistory.length - 1) targetFen = game.exportFEN();
+            else targetFen = liveMoveHistory[idx + 1].fenBefore;
+            showHistoricalPosition(targetFen, liveMoveHistory[idx]);
+            document.getElementById('analysisBadge').classList.remove('hidden');
+            document.getElementById('resumeLiveBtn').classList.remove('hidden');
+        }
+        function showHistoricalPosition(fen, move) {
+            const temp = createGame(fen);
+            const state = temp.exportJson();
+            const pieces = state.pieces;
+            const container = document.getElementById('chessboard');
+            container.innerHTML = '';
+            const ranks = boardFlipped ? ['1','2','3','4','5','6','7','8'] : ['8','7','6','5','4','3','2','1'];
+            const files = boardFlipped ? ['H','G','F','E','D','C','B','A'] : ['A','B','C','D','E','F','G','H'];
+            document.getElementById('fenInput').value = fen;
+            const lmF = move.from?.toUpperCase();
+            const lmT = move.to?.toUpperCase();
+            for (let r = 0; r < 8; r++) {
+                for (let f = 0; f < 8; f++) {
+                    const sq = files[f] + ranks[r];
+                    const piece = pieces[sq];
+                    const isLight = (r + f) % 2 === 0;
+                    const cc = isLight ? themes[activeTheme].light : themes[activeTheme].dark;
+                    const cell = document.createElement('div');
+                    cell.className = `relative flex items-center justify-center aspect-square ${cc}`;
+                    if (sq === lmF || sq === lmT) {
+                        const ov = document.createElement('div');
+                        ov.className = `absolute inset-0 ${themes[activeTheme].lastMove}`;
+                        cell.appendChild(ov);
+                    }
+                    if (piece) {
+                        if (selectedPieceStyle === 'wikipedia') {
+                            const img = document.createElement('img');
+                            const c = piece === piece.toUpperCase() ? 'w' : 'b';
+                            img.src = `https://chessboardjs.com/img/chesspieces/wikipedia/${c}${piece.toUpperCase()}.png`;
+                            img.className = "w-[80%] h-[80%] object-contain select-none pointer-events-none";
+                            cell.appendChild(img);
+                        } else {
+                            const span = document.createElement('span');
+                            span.innerText = unicodePieces[piece] || '';
+                            span.className = `text-3xl sm:text-4xl md:text-5xl font-semibold select-none pointer-events-none ${piece === piece.toUpperCase() ? 'text-slate-100 drop-shadow-[0_2px_3px_rgba(0,0,0,0.8)]' : 'text-slate-950 drop-shadow-[0_1px_1px_rgba(255,255,255,0.4)]'}`;
+                            cell.appendChild(span);
+                        }
+                    }
+                    if (f === 0) { const lb = document.createElement('span'); lb.innerText = ranks[r]; lb.className = 'absolute top-0.5 left-1 text-[9px] font-bold opacity-40 select-none pointer-events-none'; cell.appendChild(lb); }
+                    if (r === 7) { const lb = document.createElement('span'); lb.innerText = files[f].toLowerCase(); lb.className = 'absolute bottom-0.5 right-1 text-[9px] font-bold opacity-40 select-none pointer-events-none'; cell.appendChild(lb); }
+                    container.appendChild(cell);
+                }
+            }
+            updateCapturedState(pieces);
+            updateMoveHistoryLog();
+        }
+        function navigateHistory(dir) {
+            if (currentHistoryIndex === -1 && dir === -1) goToHistoryStep(liveMoveHistory.length - 1);
+            else if (currentHistoryIndex !== -1) {
+                const t = currentHistoryIndex + dir;
+                if (t >= 0 && t < liveMoveHistory.length) goToHistoryStep(t);
+                else if (t === liveMoveHistory.length) goToLiveGame();
+            }
+        }
+        function goToLiveGame() {
+            currentHistoryIndex = -1;
+            document.getElementById('analysisBadge').classList.add('hidden');
+            document.getElementById('resumeLiveBtn').classList.add('hidden');
+            renderBoard(); updateMoveHistoryLog();
+            if (customTimeLimit && gameActive) startTimer();
+        }
+
+        // Setup Mode
+        function toggleSetupMode() {
+            isSetupModeActive = !isSetupModeActive;
+            const pal = document.getElementById('setupPiecePalette');
+            const btn = document.getElementById('setupModeBtn');
+            if (isSetupModeActive) {
+                clearInterval(timerInterval); timerInterval = null;
+                selectedSquare = null; legalMoves = [];
+                pal.classList.remove('hidden');
+                btn.innerHTML = '<i class="fa-solid fa-xmark mr-1"></i> Esci';
+                btn.className = "text-xs px-3 py-1.5 rounded-xl border border-amber-500 bg-amber-500/10 text-amber-400 transition-all font-bold animate-pulse";
+                gameActive = false;
+                selectSetupPiece('P');
+            } else {
+                pal.classList.add('hidden');
+                btn.innerHTML = '<i class="fa-solid fa-screwdriver-wrench mr-1"></i> Editor Libero';
+                btn.className = "text-xs px-3 py-1.5 rounded-xl border border-slate-700 hover:border-amber-400 bg-slate-900 text-slate-300 hover:text-amber-400 transition-all font-bold";
+                initGame();
+            }
+        }
+        function selectSetupPiece(p) {
+            selectedSetupPiece = p;
+            document.querySelectorAll('.setup-piece-btn').forEach(b => { b.classList.remove('ring-4', 'ring-amber-400', 'bg-slate-700'); b.classList.add('bg-slate-800'); });
+            const ab = document.getElementById(`setup_${p}`);
+            if (ab) { ab.classList.remove('bg-slate-800'); ab.classList.add('ring-4', 'ring-amber-400', 'bg-slate-700'); }
+        }
+        function toggleSetupTurn() { setupActiveTurn = setupActiveTurn === 'white' ? 'black' : 'white'; document.getElementById('setupTurnBtn').innerText = setupActiveTurn === 'white' ? "Bianco (w)" : "Nero (b)"; }
+        function clearSetupBoard() { game = createGame({ pieces: {}, turn: setupActiveTurn, isFinished: false, check: false, castling: { whiteLong: false, whiteShort: false, blackLong: false, blackShort: false } }); renderBoard(); }
+        function handleSetupClick(sq) {
+            try {
+                if (selectedSetupPiece === 'eraser') game.removePiece(sq);
+                else game.setPiece(sq, selectedSetupPiece);
+                playSound('move'); renderBoard();
+            } catch (e) { console.error("Setup error:", e); }
+        }
+        function applySetup() {
+            try {
+                const st = game.exportJson();
+                const cfg = { pieces: st.pieces, turn: setupActiveTurn, isFinished: false, check: false, castling: { whiteLong: true, whiteShort: true, blackLong: true, blackShort: true } };
+                isSetupModeActive = false;
+                document.getElementById('setupPiecePalette').classList.add('hidden');
+                const btn = document.getElementById('setupModeBtn');
+                btn.innerHTML = '<i class="fa-solid fa-screwdriver-wrench mr-1"></i> Editor Libero';
+                btn.className = "text-xs px-3 py-1.5 rounded-xl border border-slate-700 hover:border-amber-400 bg-slate-900 text-slate-300 hover:text-amber-400 transition-all font-bold";
+                initGame(cfg); playSound('capture');
+            } catch (err) { alert("Errore posizione personalizzata!"); console.error(err); }
+        }
+
+        // FEN
+        function copyFen() {
+            navigator.clipboard.writeText(document.getElementById('fenInput').value);
+            const btn = document.querySelector('[onclick="copyFen()"]');
+            const old = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-check text-emerald-400"></i>';
+            setTimeout(() => btn.innerHTML = old, 1500);
+        }
+        function loadFen() {
+            const input = document.getElementById('loadFenInput');
+            const fen = input.value.trim();
+            if (!fen) return;
+            if (chessNetworkRole === 'guest') return;
+            try {
+                initGame(fen);
+                input.value = '';
+                playSound('capture');
+                publishNetworkSnapshot();
+            }
+            catch (err) { alert("Errore FEN invalido"); console.error(err); }
+        }
+    </script>
+    <script type="module">
+        /*
+         * Standalone launch:
+         *
+         * Open this file normally for local chess.
+         *
+         * Networked launch:
+         *
+         * Before using transport=websocket, start Game Network first.
+         * Generic service, non-privileged single-port mode:
+         *   npm run service
+         *
+         * Generic privileged service on port 80:
+         *   npm run service -- --port 80
+         *
+         * Player-facing chess launcher:
+         *   npm run play:chess
+         *
+         * Player-facing chess launcher on port 80:
+         *   npm run play:chess -- --port 80
+         *
+         * The launcher normally hides these parameters behind /host/:room and
+         * /join/:room, but developers can still open the page directly:
+         *
+         *   http://<service-ip>:9201/single-file-chess-game/index.html?transport=websocket&role=host&room=CHESS-1&peer=chess-host&hostColor=white&signaling=ws://<service-ip>:9201/ws
+         *   http://<service-ip>:9201/single-file-chess-game/index.html?transport=websocket&role=guest&room=CHESS-1&peer=chess-guest&host=chess-host&signaling=ws://<service-ip>:9201/ws
+         *
+         * On port 80, use the same host without :9201:
+         *   http://<service-ip>/single-file-chess-game/index.html?...&signaling=ws://<service-ip>/ws
+         *
+         * Or let the local file derive /ws from a service URL:
+         *   file:///D:/QIX/QIX_WEBRTC/Game_Network/single-file-chess-game/index.html?transport=websocket&role=host&room=CHESS-1&peer=chess-host&service=http://<service-ip>:9201
+         *
+         * Avoid file:// URLs for networked mode; serve this page over HTTP so
+         * browser ES module imports and WebSocket security rules are predictable.
+         * The service=... form is provided for experimentation with local files.
+         */
+        async function bootGameNetworkDiagnostics() {
+            const params = new URLSearchParams(window.location.search);
+            const transportMode = params.get('transport') || 'standalone';
+            const role = params.get('role') || 'local';
+            // Without these URL parameters the chess app remains completely
+            // standalone and the Game Network code below does not run.
+            if (transportMode !== 'websocket' || !['host', 'guest'].includes(role)) return;
+
+            const diagnostics = window.__CHESS_NETWORK_DIAGNOSTICS__;
+            const chessAdapter = window.__CHESS_GAME_ADAPTER__;
+            if (!diagnostics) return;
+
+            const roomId = params.get('room') || params.get('roomId') || 'CHESS-1';
+            const peerId = params.get('peer') || params.get('peerId') || (role === 'host' ? 'chess-host' : 'chess-guest');
+            const hostPeerId = params.get('host') || 'chess-host';
+            const displayName = params.get('name') || (role === 'host' ? 'HST' : 'GST');
+            const requestedHostColor = normalizeChessColor(params.get('hostColor') || params.get('color')) || 'white';
+            const requestedLocalColor = role === 'host' ? requestedHostColor : oppositeChessColor(requestedHostColor);
+            const autoRotate = (params.get('rotate') || params.get('autoRotate') || 'auto').toLowerCase() !== 'none';
+            chessAdapter?.setNetworkRole?.(role, requestedLocalColor, { autoRotate });
+            const signalingUrl = window.__CHESS_RESOLVE_SIGNALING_URL__?.(
+                params.get('signaling') || params.get('signalingUrl'),
+                'websocket',
+                params.get('service') || params.get('serviceUrl'),
+            ) || `ws://${window.location.host || '127.0.0.1:9201'}/ws`;
+            const moduleBase = new URL('../dist/src/', window.location.href);
+
+            diagnostics.update({ status: 'connecting' });
+
+            try {
+                // Runtime imports keep the single-file chess app usable without
+                // bundling: the network library is loaded only in network mode.
+                const [
+                    { WebSocketTransport },
+                    { HostRoom, GuestRoom },
+                    { ClockSyncHost, ClockSyncClient },
+                ] = await Promise.all([
+                    import(new URL('webSocketTransport.js', moduleBase)),
+                    import(new URL('room.js', moduleBase)),
+                    import(new URL('clockSync.js', moduleBase)),
+                ]);
+
+                const transport = await WebSocketTransport.create({
+                    peerId,
+                    url: signalingUrl,
+                });
+                const markDisconnected = () => {
+                    diagnostics.update({ status: 'disconnected' });
+                };
+                transport.onClose(markDisconnected);
+                transport.onError?.(markDisconnected);
+                const clockResponder = new ClockSyncHost({ roomId, transport });
+                let diagnosticClockClient = null;
+                let syncBurstTimer = null;
+                let syncPanelTimer = null;
+                let guestJoinTimer = null;
+                let lastClockStatsSentAt = 0;
+
+                const updateEstimate = () => {
+                    if (!diagnosticClockClient) return;
+                    const estimate = diagnosticClockClient.getEstimate();
+                    if (!estimate.locked) return;
+                    diagnostics.update({
+                        status: 'connected',
+                        rttMs: estimate.rttMs,
+                        bestRttMs: estimate.bestRttMs,
+                        offsetMs: estimate.offsetMs,
+                        drift: estimate.drift,
+                        lastSyncAt: Date.now(),
+                    });
+                    if (role === 'guest' && window.__CHESS_GAME_NETWORK__?.room?.localPlayer) {
+                        const now = Date.now();
+                        if (now - lastClockStatsSentAt > 500) {
+                            lastClockStatsSentAt = now;
+                            window.__CHESS_GAME_NETWORK__.room.sendInput({
+                                kind: 'clock_stats',
+                                estimate: {
+                                    rttMs: estimate.rttMs,
+                                    bestRttMs: estimate.bestRttMs,
+                                    offsetMs: estimate.offsetMs,
+                                    drift: estimate.drift,
+                                },
+                            });
+                        }
+                    }
+                };
+
+                const startClockClient = (remotePeerId) => {
+                    if (diagnosticClockClient) diagnosticClockClient.close();
+                    if (syncBurstTimer) clearInterval(syncBurstTimer);
+                    if (syncPanelTimer) clearInterval(syncPanelTimer);
+
+                    diagnosticClockClient = new ClockSyncClient({
+                        roomId,
+                        hostPeerId: remotePeerId,
+                        transport,
+                        bestSampleRatio: 0.3,
+                        maxSamples: 120,
+                    });
+                    diagnostics.update({ status: 'connected', connectedPeerId: remotePeerId });
+                    diagnosticClockClient.requestBurst(16);
+                    syncBurstTimer = setInterval(() => diagnosticClockClient.requestBurst(8), 2000);
+                    syncPanelTimer = setInterval(updateEstimate, 300);
+                };
+
+                if (role === 'host') {
+                    /*
+                     * Host branch:
+                     *
+                     * The host creates the room, owns the authoritative chess
+                     * position, accepts guest move inputs, and broadcasts full
+                     * snapshots back to guests.
+                     */
+                    const hostRoom = new HostRoom({
+                        roomId,
+                        maxPlayers: 2,
+                        displayName,
+                        transport,
+                        assignPlayerId: (index) => index === 0 ? requestedHostColor : oppositeChessColor(requestedHostColor),
+                    });
+                    const sendSnapshot = () => {
+                        hostRoom.sendSnapshot(chessAdapter.getSnapshot());
+                    };
+                    hostRoom.onPlayerJoined((player) => {
+                        diagnostics.update({ status: 'connected', connectedPeerId: player.peerId });
+                        setTimeout(sendSnapshot, 100);
+                    });
+                    hostRoom.onInput((payload) => {
+                        const input = payload.input;
+                        if (input?.kind === 'clock_stats') {
+                            const inputPlayer = hostRoom.players.find((player) => player.id === payload.playerId);
+                            diagnostics.update({
+                                status: 'connected',
+                                connectedPeerId: inputPlayer?.peerId ?? String(payload.playerId),
+                                rttMs: input.estimate?.rttMs,
+                                bestRttMs: input.estimate?.bestRttMs,
+                                offsetMs: input.estimate?.offsetMs,
+                                drift: input.estimate?.drift,
+                                lastSyncAt: Date.now(),
+                            });
+                            return;
+                        }
+                        if (input?.kind === 'move') {
+                            // Guest input is validated by the chess engine on
+                            // the host. If accepted, the host publishes the new
+                            // authoritative snapshot.
+                            if (chessAdapter.applyMove(input.move)) {
+                                sendSnapshot();
+                            }
+                            return;
+                        }
+                        if (input?.kind === 'restart') {
+                            initGame();
+                            sendSnapshot();
+                        }
+                    });
+                    diagnostics.update({ status: 'listening' });
+                    window.__CHESS_GAME_NETWORK__ = {
+                        role,
+                        room: hostRoom,
+                        transport,
+                        clockResponder,
+                        sendSnapshot,
+                        sendLocalMove: () => sendSnapshot(),
+                    };
+                    return;
+                }
+
+                const guestRoom = new GuestRoom({
+                    roomId,
+                    displayName,
+                    hostPeerId,
+                    transport,
+                });
+                guestRoom.onConnected((payload) => {
+                    // The guest learns its assigned color from the room accept
+                    // payload, then the board can rotate automatically.
+                    if (guestJoinTimer) clearInterval(guestJoinTimer);
+                    chessAdapter?.setNetworkRole?.(role, payload.localPlayer.id, { autoRotate });
+                    startClockClient(hostPeerId);
+                });
+                guestRoom.onRejected((payload) => {
+                    console.warn('Chess network join rejected:', payload);
+                    diagnostics.update({ status: 'error', connectedPeerId: hostPeerId });
+                });
+                guestRoom.onSnapshot((payload) => {
+                    // Guest rendering follows the host snapshot. This is what
+                    // keeps reconnects and optimistic guest moves honest.
+                    chessAdapter.applySnapshot(payload.snapshot);
+                });
+                guestRoom.join();
+                guestJoinTimer = setInterval(() => {
+                    if (guestRoom.localPlayer) {
+                        clearInterval(guestJoinTimer);
+                        return;
+                    }
+                    guestRoom.join();
+                }, 1000);
+                diagnostics.update({ status: 'connecting', connectedPeerId: hostPeerId });
+                window.__CHESS_GAME_NETWORK__ = {
+                    role,
+                    room: guestRoom,
+                    transport,
+                    clockResponder,
+                    sendLocalMove: (move) => guestRoom.localPlayer && guestRoom.sendInput({ kind: 'move', move }),
+                    sendRestartRequest: () => guestRoom.localPlayer && guestRoom.sendInput({ kind: 'restart' }),
+                };
+            } catch (error) {
+                console.error('Chess network diagnostics failed:', error);
+                diagnostics.update({ status: 'error' });
+            }
+        }
+
+        bootGameNetworkDiagnostics();
+
+        function normalizeChessColor(value) {
+            if (typeof value !== 'string') return null;
+            const normalized = value.trim().toLowerCase();
+            if (normalized === 'white' || normalized === 'bianco') return 'white';
+            if (normalized === 'black' || normalized === 'nero') return 'black';
+            return null;
+        }
+
+        function oppositeChessColor(color) {
+            return color === 'black' ? 'white' : 'black';
+        }
+    </script>
+</body>
+</html>
