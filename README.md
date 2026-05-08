@@ -145,6 +145,12 @@ More details: [Deployment Guide](docs/DEPLOYMENT.md).
 For university networks where local hosting is blocked, deploy the public relay:
 [Cloudflare Relay Setup](docs/CLOUDFLARE_RELAY.md).
 
+Cloudflare has two separate targets:
+
+- static dashboard: build command `npm run cloudflare:pages:build`, output
+  directory `pages-dist`, no deploy command;
+- relay Worker: deploy command `npm run cloudflare:relay:deploy`.
+
 ## Adding A Game To The Service Dashboard
 
 Put static game files under `games/<id>/` and register the entry point in

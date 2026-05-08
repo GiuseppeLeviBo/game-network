@@ -3,14 +3,58 @@
 This setup is for networks where clients cannot reach a local host directly,
 even on port `80`.
 
-GitHub Pages serves the dashboard and game files. Cloudflare Workers provides a
-public WebSocket relay on `443`.
+The static dashboard and the WebSocket relay are two different deploy targets:
+
+- **Pages/static site** serves the dashboard, documentation and example games.
+- **Worker relay** serves only the WebSocket signaling endpoint on `443`.
+
+Do not use `npx wrangler deploy` as the deploy command of the static Pages
+project. That command deploys the relay Worker, not the static dashboard.
 
 ## 1. Create A Cloudflare Account
 
 Use the Free plan. Do not enable paid Workers features while testing.
 
-## 2. Install Wrangler
+## 2. Static Dashboard On Cloudflare Pages
+
+Create a Cloudflare Pages project connected to this repository.
+
+Use these build settings:
+
+```text
+Framework preset: None
+Build command: npm run cloudflare:pages:build
+Build output directory: pages-dist
+Deploy command: leave empty
+Root directory: leave empty if this repository root is Game_Network
+```
+
+If Cloudflare asks for a deploy command and suggests `npx wrangler deploy`, clear
+that field for the Pages project. The Pages project only needs the output folder
+`pages-dist`.
+
+## 3. Worker Relay
+
+The relay Worker lives in:
+
+```text
+workers/game-network-relay/wrangler.jsonc
+```
+
+Deploy it as a separate Worker project, or run the deploy command from this
+repository root.
+
+### Option A: Cloudflare Dashboard / Connected Build
+
+Use this command when Cloudflare asks how to deploy the Worker:
+
+```bash
+npm run cloudflare:relay:deploy
+```
+
+### Option B: Local Machine
+
+Install Wrangler once:
 
 On the development machine:
 
@@ -21,13 +65,10 @@ wrangler login
 
 `wrangler login` opens a browser and authorizes the CLI.
 
-## 3. Deploy The Relay
-
 From the repository root:
 
 ```bash
-cd workers/game-network-relay
-wrangler deploy
+npm run cloudflare:relay:deploy
 ```
 
 Cloudflare prints a URL shaped like:
