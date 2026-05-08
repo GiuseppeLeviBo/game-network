@@ -48,11 +48,11 @@ wrangler deploy
 Cloudflare prints a URL like:
 
 ```text
-https://game-network-relay.<account>.workers.dev
+https://game-network.<account>.workers.dev
 ```
 
 The WebSocket URL to use in the game is:
 
 ```text
-wss://game-network-relay.<account>.workers.dev/ws?room=CHESS-1
+wss://game-network.<account>.workers.dev/ws?room=CHESS-1
 ```

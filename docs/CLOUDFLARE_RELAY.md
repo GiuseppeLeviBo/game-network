@@ -82,16 +82,22 @@ npm run cloudflare:relay:deploy
 Cloudflare prints a URL shaped like:
 
 ```text
-https://game-network-relay.<account>.workers.dev
+https://game-network.<account>.workers.dev
 ```
 
 The WebSocket relay URL is:
 
 ```text
-wss://game-network-relay.<account>.workers.dev/ws
+wss://game-network.<account>.workers.dev/ws
 ```
 
 The static dashboard automatically adds `?room=ROOM-ID`.
+
+Current deployed relay:
+
+```text
+wss://game-network.giuseppe-levi.workers.dev/ws
+```
 
 ## 4. Test
 
@@ -104,7 +110,7 @@ https://<github-user>.github.io/game-network/
 Paste the relay URL:
 
 ```text
-wss://game-network-relay.<account>.workers.dev/ws
+wss://game-network.<account>.workers.dev/ws
 ```
 
 Then:

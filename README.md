@@ -153,6 +153,12 @@ Cloudflare has two separate targets:
   `npx wrangler deploy` from the repository root, or
   `npm run cloudflare:relay:deploy`.
 
+Current relay endpoint:
+
+```text
+wss://game-network.giuseppe-levi.workers.dev/ws
+```
+
 ## Adding A Game To The Service Dashboard
 
 Put static game files under `games/<id>/` and register the entry point in
