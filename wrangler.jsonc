@@ -1,5 +1,5 @@
 {
-  "name": "game-network-relay",
+  "name": "game-network",
   "main": "workers/game-network-relay/src/index.js",
   "compatibility_date": "2026-05-08",
   "durable_objects": {
