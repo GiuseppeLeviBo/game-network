@@ -142,6 +142,9 @@ certificate configuration.
 
 More details: [Deployment Guide](docs/DEPLOYMENT.md).
 
+For university networks where local hosting is blocked, deploy the public relay:
+[Cloudflare Relay Setup](docs/CLOUDFLARE_RELAY.md).
+
 ## Adding A Game To The Service Dashboard
 
 Put static game files under `games/<id>/` and register the entry point in
@@ -186,6 +189,7 @@ Game_Network/
     ARCHITECTURE.md
     CHESS_EXAMPLE_INTEGRATION.md
     CHESS_PLAYER_GUIDE.md
+    CLOUDFLARE_RELAY.md
     DEPLOYMENT.md
     DEVELOPER_API.md
   Notes/
