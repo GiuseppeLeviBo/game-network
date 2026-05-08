@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const rootDir = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const outDir = join(rootDir, "pages-dist");
+const publicRelayUrl = "wss://game-network.giuseppe-levi.workers.dev/ws";
 
 await rm(outDir, { recursive: true, force: true });
 await mkdir(outDir, { recursive: true });
@@ -69,9 +70,9 @@ function renderIndex() {
     <section class="grid">
       <div class="panel wide">
         <h2>Internet Multiplayer Test</h2>
-        <p>Inserisci il relay Cloudflare, scegli stanza e colore host, poi apri la pagina host e condividi il link guest.</p>
+        <p>Relay Cloudflare gia configurato. Scegli stanza e colore host, poi apri la pagina host e condividi il link guest.</p>
         <label for="relayUrl">Relay WSS</label>
-        <input id="relayUrl" placeholder="wss://game-network-relay.<account>.workers.dev/ws">
+        <input id="relayUrl" value="${publicRelayUrl}" placeholder="${publicRelayUrl}">
         <label for="room">Stanza</label>
         <input id="room" value="CHESS-1">
         <label for="hostColor">Colore host</label>
@@ -107,8 +108,8 @@ function renderIndex() {
 
       <div class="panel">
         <h2>Relay pubblico</h2>
-        <p>La forma prevista e un endpoint Cloudflare Workers Free, per esempio:</p>
-        <span class="code">wss://&lt;nome-worker&gt;.&lt;account&gt;.workers.dev/ws</span>
+        <p>Endpoint Cloudflare Workers Free configurato per questa dashboard:</p>
+        <span class="code">${publicRelayUrl}</span>
         <p>Host e guest useranno entrambi connessioni in uscita su 443.</p>
       </div>
 
