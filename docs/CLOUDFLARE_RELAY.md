@@ -41,6 +41,14 @@ The relay Worker lives in:
 workers/game-network-relay/wrangler.jsonc
 ```
 
+The repository root also contains `wrangler.jsonc` pointing at that Worker, so a
+Cloudflare connected build that runs this pair from the repository root is valid:
+
+```text
+Build command: npm run build
+Deploy command: npx wrangler deploy
+```
+
 Deploy it as a separate Worker project, or run the deploy command from this
 repository root.
 

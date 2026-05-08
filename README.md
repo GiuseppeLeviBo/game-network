@@ -149,7 +149,9 @@ Cloudflare has two separate targets:
 
 - static dashboard: build command `npm run cloudflare:pages:build`, output
   directory `pages-dist`, no deploy command;
-- relay Worker: deploy command `npm run cloudflare:relay:deploy`.
+- relay Worker: build command `npm run build`, deploy command
+  `npx wrangler deploy` from the repository root, or
+  `npm run cloudflare:relay:deploy`.
 
 ## Adding A Game To The Service Dashboard
 

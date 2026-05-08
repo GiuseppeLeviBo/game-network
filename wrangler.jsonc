@@ -1,0 +1,19 @@
+{
+  "name": "game-network-relay",
+  "main": "workers/game-network-relay/src/index.js",
+  "compatibility_date": "2026-05-08",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ROOMS",
+        "class_name": "GameNetworkRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["GameNetworkRoom"]
+    }
+  ]
+}
