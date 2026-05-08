@@ -136,13 +136,13 @@ http://192.168.0.197:9201/join/CHESS-A1B2
 ws://192.168.0.197:9201/ws
 ```
 
-This is the preferred model for schools, universities, and locked-down networks.
+This is the preferred model for managed and locked-down networks.
 On port `80`, the same URLs omit `:9201`. Port `443` will require HTTPS/WSS and
 certificate configuration.
 
 More details: [Deployment Guide](docs/DEPLOYMENT.md).
 
-For university networks where local hosting is blocked, deploy the public relay:
+For managed networks where local hosting is blocked, deploy the public relay:
 [Cloudflare Relay Setup](docs/CLOUDFLARE_RELAY.md).
 
 Cloudflare has two separate targets:

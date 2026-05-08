@@ -69,7 +69,7 @@ On Windows:
 3. run:
 
 ```bash
-cd D:\QIX\QIX_WEBRTC\Game_Network
+cd path/to/Game_Network
 npm run service -- --port 80
 ```
 
@@ -108,7 +108,7 @@ Possible future command:
 node dist/src/gameLauncherCli.js --https --port 443 --cert cert.pem --key key.pem
 ```
 
-For a university deployment, the cleanest production option may be:
+For a managed deployment, the cleanest production option may be:
 
 - Game Network service behind an existing HTTPS reverse proxy;
 - proxy handles certificate and port `443`;

@@ -20,10 +20,10 @@ Open the page without network parameters:
 /single-file-chess-game/
 ```
 
-or, as a local file:
+or from a local checkout:
 
 ```text
-file:///D:/QIX/QIX_WEBRTC/Game_Network/single-file-chess-game/index.html
+single-file-chess-game/index.html
 ```
 
 No Game Network code runs in this mode. It is just the local chess app.

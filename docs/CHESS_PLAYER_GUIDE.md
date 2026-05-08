@@ -14,7 +14,7 @@ anything.
 On the host machine:
 
 ```bash
-cd D:\QIX\QIX_WEBRTC\Game_Network
+cd path/to/Game_Network
 npm run play:chess
 ```
 
@@ -43,7 +43,7 @@ client.
 
 ## Port 80 For Restricted Networks
 
-Some school or university networks block non-standard ports. The launcher is
+Some managed networks block non-standard ports. The launcher is
 already single-port; in that case run the same launcher on port `80`:
 
 ```bash

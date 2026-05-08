@@ -1539,8 +1539,8 @@
          * On port 80, use the same host without :9201:
          *   http://<service-ip>/single-file-chess-game/index.html?...&signaling=ws://<service-ip>/ws
          *
-         * Or let the local file derive /ws from a service URL:
-         *   file:///D:/QIX/QIX_WEBRTC/Game_Network/single-file-chess-game/index.html?transport=websocket&role=host&room=CHESS-1&peer=chess-host&service=http://<service-ip>:9201
+         * Or open the same page from the local service and let it derive /ws:
+         *   http://<service-ip>:9201/single-file-chess-game/index.html?transport=websocket&role=host&room=CHESS-1&peer=chess-host
          *
          * Avoid file:// URLs for networked mode; serve this page over HTTP so
          * browser ES module imports and WebSocket security rules are predictable.
