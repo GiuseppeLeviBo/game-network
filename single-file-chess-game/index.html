@@ -293,6 +293,21 @@
                     </div>
                 </div>
 
+                <div class="grid grid-cols-3 gap-2 pt-1">
+                    <div class="bg-slate-950/70 rounded-xl border border-slate-800 p-3 text-center">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Lookahead</div>
+                        <div id="networkLookahead" class="code-font mt-1 text-lg font-bold text-slate-300">--</div>
+                    </div>
+                    <div class="bg-slate-950/70 rounded-xl border border-slate-800 p-3 text-center">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Margine</div>
+                        <div id="networkProbeSlack" class="code-font mt-1 text-lg font-bold text-slate-300">--</div>
+                    </div>
+                    <div class="bg-slate-950/70 rounded-xl border border-slate-800 p-3 text-center">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Probe</div>
+                        <div id="networkProbeSamples" class="code-font mt-1 text-lg font-bold text-slate-300">0</div>
+                    </div>
+                </div>
+
                 <div class="bg-slate-900/70 rounded-2xl border border-slate-800 p-3">
                     <div class="flex items-center justify-between">
                         <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Qualita canale</span>
@@ -456,6 +471,9 @@
             oneWayDelayMs: null,
             oneWayJitterMs: null,
             oneWaySamples: 0,
+            adaptiveLookaheadMs: null,
+            probeSlackMs: null,
+            probeSamples: 0,
             connectedAt: null
         };
 
@@ -606,6 +624,9 @@
                 networkDiagnostics.oneWayDelayMs = null;
                 networkDiagnostics.oneWayJitterMs = null;
                 networkDiagnostics.oneWaySamples = 0;
+                networkDiagnostics.adaptiveLookaheadMs = null;
+                networkDiagnostics.probeSlackMs = null;
+                networkDiagnostics.probeSamples = 0;
                 networkDiagnostics.connectedAt = null;
             }
             expireStaleNetworkStatus();
@@ -644,9 +665,12 @@
             setText('networkOneWay', formatMs(networkDiagnostics.oneWayDelayMs));
             setText('networkOneWayJitter', formatMs(networkDiagnostics.oneWayJitterMs));
             setText('networkOneWaySamples', String(networkDiagnostics.oneWaySamples ?? 0));
+            setText('networkLookahead', formatMs(networkDiagnostics.adaptiveLookaheadMs));
+            setText('networkProbeSlack', formatSignedMs(networkDiagnostics.probeSlackMs));
+            setText('networkProbeSamples', String(networkDiagnostics.probeSamples ?? 0));
             setText('networkQuality', quality.label);
             const oneWayLabel = networkDiagnostics.oneWaySamples > 0
-                ? `Eventi OW: ${networkDiagnostics.oneWaySamples}`
+                ? `Eventi OW: ${networkDiagnostics.oneWaySamples}; probe: ${networkDiagnostics.probeSamples ?? 0}`
                 : 'OW in attesa di mosse/snapshot.';
             setText('networkLastSync', networkDiagnostics.lastSyncAt ? `Ultimo sync: ${formatTime(networkDiagnostics.lastSyncAt)}. ${oneWayLabel}` : 'Nessun campione clock sync ricevuto.');
 
@@ -790,6 +814,14 @@
             return { label: 'Instabile', score, barClass: 'bg-red-400' };
         }
 
+        function computeAdaptiveLookaheadMs(oneWayDelayMs, oneWayJitterMs, rttMs) {
+            const baseline = Number.isFinite(oneWayDelayMs)
+                ? oneWayDelayMs
+                : (Number.isFinite(rttMs) ? rttMs / 2 : 25);
+            const jitter = Number.isFinite(oneWayJitterMs) ? oneWayJitterMs : 0;
+            return Math.round(Math.max(25, Math.min(120, baseline + jitter * 3 + 10)));
+        }
+
         /*
          * Game Network diagnostics API used by the example and by browser tests.
          *
@@ -817,6 +849,9 @@
                 oneWay: document.getElementById('networkOneWay')?.innerText,
                 oneWayJitter: document.getElementById('networkOneWayJitter')?.innerText,
                 oneWaySamples: document.getElementById('networkOneWaySamples')?.innerText,
+                lookahead: document.getElementById('networkLookahead')?.innerText,
+                probeSlack: document.getElementById('networkProbeSlack')?.innerText,
+                probeSamples: document.getElementById('networkProbeSamples')?.innerText,
                 quality: document.getElementById('networkQuality')?.innerText,
             })
         };
@@ -1686,17 +1721,59 @@
                 let syncBurstTimer = null;
                 let syncPanelTimer = null;
                 let guestJoinTimer = null;
+                let diagnosticProbeTimer = null;
+                let diagnosticProbeSeq = 0;
                 let lastClockStatsSentAt = 0;
                 const oneWayTracker = new OneWayDelayTracker({ maxSamples: 120 });
 
                 const updateOneWayStats = (payload, label) => {
                     if (!Number.isFinite(payload?.sentAt) || !Number.isFinite(payload?.receivedAt)) return;
                     const estimate = oneWayTracker.add(payload.sentAt, payload.receivedAt, { label });
+                    const adaptiveLookaheadMs = computeAdaptiveLookaheadMs(
+                        estimate.delayMs,
+                        estimate.jitterMs,
+                        networkDiagnostics.bestRttMs ?? networkDiagnostics.rttMs,
+                    );
                     diagnostics.update({
                         oneWayDelayMs: estimate.delayMs,
                         oneWayJitterMs: estimate.jitterMs,
                         oneWaySamples: estimate.sampleCount,
+                        adaptiveLookaheadMs,
                     });
+                    return estimate;
+                };
+
+                const updateProbeTimeline = (payload, probe) => {
+                    if (!Number.isFinite(payload?.receivedAt) || !Number.isFinite(probe?.scheduledAt)) return;
+                    diagnostics.update({
+                        probeSlackMs: probe.scheduledAt - payload.receivedAt,
+                        probeSamples: (networkDiagnostics.probeSamples ?? 0) + 1,
+                    });
+                };
+
+                const currentLookaheadMs = () => networkDiagnostics.adaptiveLookaheadMs ?? 50;
+
+                const createDiagnosticProbe = (direction, now) => {
+                    const lookaheadMs = currentLookaheadMs();
+                    return {
+                        kind: 'diagnostic_probe',
+                        seq: ++diagnosticProbeSeq,
+                        direction,
+                        scheduledAt: now() + lookaheadMs,
+                        lookaheadMs,
+                    };
+                };
+
+                const startDiagnosticProbes = (sendProbe) => {
+                    if (diagnosticProbeTimer) clearTimeout(diagnosticProbeTimer);
+                    const tick = () => {
+                        const delayMs = 700 + Math.floor(Math.random() * 1100);
+                        diagnosticProbeTimer = setTimeout(() => {
+                            sendProbe();
+                            tick();
+                        }, delayMs);
+                    };
+                    tick();
                 };
 
                 const updateEstimate = () => {
@@ -1768,6 +1845,7 @@
                     hostRoom.onPlayerJoined((player) => {
                         diagnostics.update({ status: 'connected', connectedPeerId: player.peerId });
                         setTimeout(sendSnapshot, 100);
+                        startDiagnosticProbes(() => hostRoom.sendEvent(createDiagnosticProbe('host-to-guest', () => performance.now())));
                     });
                     hostRoom.onInput((payload) => {
                         const input = payload.input;
@@ -1785,6 +1863,10 @@
                             return;
                         }
                         updateOneWayStats(payload, input?.kind ?? 'input');
+                        if (input?.kind === 'diagnostic_probe') {
+                            updateProbeTimeline(payload, input);
+                            return;
+                        }
                         if (input?.kind === 'move') {
                             // Guest input is validated by the chess engine on
                             // the host. If accepted, the host publishes the new
@@ -1811,6 +1893,7 @@
                         transport,
                         clockResponder,
                         sendSnapshot,
+                        sendDiagnosticProbe: () => hostRoom.sendEvent(createDiagnosticProbe('host-to-guest', () => performance.now())),
                         sendLocalMove: () => sendSnapshot(),
                     };
                     return;
@@ -1840,6 +1923,13 @@
                     updateOneWayStats(payload, 'snapshot');
                     chessAdapter.applySnapshot(payload.snapshot);
                 });
+                guestRoom.onEvent((payload) => {
+                    const event = payload.event;
+                    updateOneWayStats(payload, event?.kind ?? 'event');
+                    if (event?.kind === 'diagnostic_probe') {
+                        updateProbeTimeline(payload, event);
+                    }
+                });
                 guestRoom.join();
                 guestJoinTimer = setInterval(() => {
                     if (guestRoom.localPlayer) {
@@ -1855,6 +1945,10 @@
                     transport,
                     clockResponder,
                     sendLocalMove: (move) => guestRoom.localPlayer && guestRoom.sendInput({ kind: 'move', move }),
+                    sendDiagnosticProbe: () => {
+                        if (!guestRoom.localPlayer || !diagnosticClockClient?.getEstimate().locked) return;
+                        guestRoom.sendInput(createDiagnosticProbe('guest-to-host', () => diagnosticClockClient.now()));
+                    },
                     sendRestartRequest: () => {
                         transport.send(hostPeerId, 'control', {
                             version: 1,
@@ -1868,6 +1962,7 @@
                         });
                     },
                 };
+                startDiagnosticProbes(() => window.__CHESS_GAME_NETWORK__?.sendDiagnosticProbe?.());
             } catch (error) {
                 console.error('Chess network diagnostics failed:', error);
                 diagnostics.update({ status: 'error' });

@@ -258,6 +258,8 @@ Current coverage includes:
 - host snapshot delivery;
 - low-level clock sync math and sampling;
 - assisted one-way timing metadata on inputs, snapshots, and game events;
+- adaptive diagnostic probes that measure raw arrival versus scheduled timeline
+  margin without changing game state;
 - chess browser integration with host snapshots, guest moves, color assignment,
   automatic black perspective, and channel diagnostics.
 

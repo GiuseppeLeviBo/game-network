@@ -66,6 +66,53 @@ test("single-file chess mirrors host snapshots and guest moves over WebSocket", 
   }
 });
 
+test("diagnostic probes exercise adaptive timing without changing the chess game", async ({ browser }) => {
+  const hub = await startHub();
+  const hostServer = await startStaticServer(gameNetworkRoot);
+  const guestServer = await startStaticServer(gameNetworkRoot);
+  const context = await browser.newContext();
+  const host = await context.newPage();
+  const guest = await context.newPage();
+  await installChessPageStubs(host);
+  await installChessPageStubs(guest);
+
+  const room = `CHESS-PROBE-${Date.now()}`;
+  const hostUrl = `${hostServer.url}/single-file-chess-game/?transport=websocket&role=host&room=${room}&peer=chess-host-${room}&signaling=${hub.url}`;
+  const guestUrl = `${guestServer.url}/single-file-chess-game/?transport=websocket&role=guest&room=${room}&peer=chess-guest-${room}&host=chess-host-${room}&signaling=${hub.url}`;
+
+  try {
+    await host.goto(hostUrl);
+    await guest.goto(guestUrl);
+
+    await expectConnected(host);
+    await expectConnected(guest);
+
+    const hostFenBefore = await fen(host);
+    const guestFenBefore = await fen(guest);
+
+    await host.evaluate(() => window.__CHESS_GAME_NETWORK__.sendDiagnosticProbe());
+    await expect.poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().probeSamples)).not.toBe("0");
+    await expect.poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().lookahead)).not.toBe("--");
+    await expect.poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().probeSlack)).not.toBe("--");
+
+    await expect.poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().oneWaySamples)).not.toBe("0");
+    await expect.poll(() => guest.evaluate(() => window.__CHESS_GAME_ADAPTER__.getSnapshot().fen)).toBe(guestFenBefore);
+
+    await expect
+      .poll(async () => {
+        await guest.evaluate(() => window.__CHESS_GAME_NETWORK__.sendDiagnosticProbe());
+        return host.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().probeSamples);
+      })
+      .not.toBe("0");
+    await expect.poll(() => host.evaluate(() => window.__CHESS_GAME_ADAPTER__.getSnapshot().fen)).toBe(hostFenBefore);
+  } finally {
+    await context.close();
+    await closeServer(hostServer.server);
+    await closeServer(guestServer.server);
+    await closeServer(hub.server);
+  }
+});
+
 test("single-file chess can assign black to the host and rotates local black perspective", async ({ browser }) => {
   const hub = await startHub();
   const hostServer = await startStaticServer(gameNetworkRoot);
@@ -231,6 +278,10 @@ async function expectFenToContain(page: Page, value: string) {
     .toContain(value);
 }
 
+async function fen(page: Page) {
+  return page.evaluate(() => window.__CHESS_GAME_ADAPTER__.getSnapshot().fen);
+}
+
 async function startHub() {
   const server = startWebSocketHubServer({ host: "127.0.0.1", port: 0 });
   await onceListening(server);
@@ -341,10 +392,18 @@ declare global {
     __CHESS_GAME_NETWORK__: {
       sendSnapshot(): void;
       sendLocalMove(move: { from: string; to: string; promotion?: string }): void;
+      sendDiagnosticProbe(): void;
       sendRestartRequest(): void;
     };
     __CHESS_NETWORK_DIAGNOSTICS__: {
-      getSnapshot(): { quality: string; oneWay?: string; oneWaySamples?: string };
+      getSnapshot(): {
+        quality: string;
+        oneWay?: string;
+        oneWaySamples?: string;
+        lookahead?: string;
+        probeSlack?: string;
+        probeSamples?: string;
+      };
     };
   }
 }

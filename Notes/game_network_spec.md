@@ -444,6 +444,12 @@ clock model. Implementations should keep housekeeping traffic, such as
 `clock_stats`, separate from gameplay one-way samples so dashboards do not mix
 maintenance traffic with player inputs or snapshots.
 
+Diagnostic integrations may also exchange no-op application probes. A
+`diagnostic_probe` carries a sequence number, a sender direction, and a
+`scheduledAt` timestamp in the shared application timeline. Receivers compare
+arrival time with `scheduledAt` to show the current safety margin. The probe must
+not modify game state, scoring, turn order, or user-visible move history.
+
 ## 15. Message Encoding
 
 The first version should use JSON for clarity and debuggability.
