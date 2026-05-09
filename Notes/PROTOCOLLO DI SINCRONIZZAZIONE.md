@@ -33,6 +33,11 @@ dal clock virtuale e mostra il margine della timeline adattiva. Se il margine
 diventa negativo, il lookahead consigliato dovra crescere; se resta ampio e
 stabile, potra ridursi gradualmente nelle integrazioni in tempo reale.
 
+Il pannello diagnostico puo mostrare anche un clock `h:mm:ss.mmm` della timeline
+applicativa. L'host visualizza il proprio clock monotono; i guest visualizzano
+lo stesso clock stimato tramite `ClockSyncClient.now()`. Questo rende visibile
+la timeline condivisa su cui vengono programmati probe ed eventi futuri.
+
 Limite attuale: `sync` e un canale logico multiplexato sullo stesso collegamento fisico di `control` e `realtime`. Una fase successiva potra mappare `sync` su un DataChannel fisico dedicato, unordered e loss-tolerant.
 
 Per stare sotto 10 ms su Internet standard, la strada più concreta è un protocollo **NTP-like/Cristian evoluto** sopra **WebRTC DataChannel**, con stima continua di **offset** e **drift**, più filtro robusto sui campioni con RTT minimo. La formula base da usare è quella classica a quattro timestamp, con offset $\theta = \frac{(t_2-t_1)+(t_3-t_4)}{2}$ e round-trip delay $\delta = (t_4-t_1)-(t_3-t_2)$, perché consente di separare parzialmente offset e ritardo di rete.[^1][^2]

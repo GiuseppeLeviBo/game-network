@@ -260,6 +260,7 @@ Current coverage includes:
 - assisted one-way timing metadata on inputs, snapshots, and game events;
 - adaptive diagnostic probes that measure raw arrival versus scheduled timeline
   margin without changing game state;
+- synchronized timeline clock display for browser diagnostics;
 - chess browser integration with host snapshots, guest moves, color assignment,
   automatic black perspective, and channel diagnostics.
 

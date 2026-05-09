@@ -450,6 +450,10 @@ Diagnostic integrations may also exchange no-op application probes. A
 arrival time with `scheduledAt` to show the current safety margin. The probe must
 not modify game state, scoring, turn order, or user-visible move history.
 
+Debug dashboards should expose the same shared application timeline as a
+monotonic `h:mm:ss.mmm` clock. This is not civil wall-clock time; it is the
+host-authoritative timeline seen by each peer after clock synchronization.
+
 ## 15. Message Encoding
 
 The first version should use JSON for clarity and debuggability.

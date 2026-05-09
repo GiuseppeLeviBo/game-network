@@ -263,6 +263,11 @@
                     </div>
                 </div>
 
+                <div class="bg-slate-950/70 rounded-xl border border-slate-800 p-3 flex items-center justify-between">
+                    <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Clock timeline</div>
+                    <div id="networkTimelineClock" class="code-font text-lg font-bold text-slate-300">--:--:--.---</div>
+                </div>
+
                 <div class="grid grid-cols-3 gap-2 pt-1">
                     <div class="bg-slate-950/70 rounded-xl border border-slate-800 p-3 text-center">
                         <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">RTT</div>
@@ -474,6 +479,7 @@
             adaptiveLookaheadMs: null,
             probeSlackMs: null,
             probeSamples: 0,
+            timelineNow: null,
             connectedAt: null
         };
 
@@ -604,7 +610,7 @@
         function initNetworkPanel() {
             updateNetworkPanel();
             if (networkPanelInterval) clearInterval(networkPanelInterval);
-            networkPanelInterval = setInterval(updateNetworkPanel, 1000);
+            networkPanelInterval = setInterval(updateNetworkPanel, 50);
         }
 
         function updateNetworkPanel(overrides = {}) {
@@ -627,6 +633,7 @@
                 networkDiagnostics.adaptiveLookaheadMs = null;
                 networkDiagnostics.probeSlackMs = null;
                 networkDiagnostics.probeSamples = 0;
+                networkDiagnostics.timelineNow = null;
                 networkDiagnostics.connectedAt = null;
             }
             expireStaleNetworkStatus();
@@ -659,6 +666,7 @@
             setText('networkRemotePeer', remotePeer);
             setText('networkTransport', transport);
             setText('networkSignaling', signaling);
+            setText('networkTimelineClock', formatTimelineClock(readTimelineNow()));
             setText('networkRtt', formatMs(networkDiagnostics.rttMs));
             setText('networkBestRtt', formatMs(networkDiagnostics.bestRttMs));
             setText('networkOffset', formatSignedMs(clockStabilityMs()));
@@ -802,6 +810,28 @@
             return String(value);
         }
 
+        function readTimelineNow() {
+            if (typeof networkDiagnostics.timelineNow === 'function') {
+                const value = networkDiagnostics.timelineNow();
+                if (Number.isFinite(value)) return value;
+            }
+            return Number.isFinite(networkDiagnostics.connectedAt) ? Date.now() - networkDiagnostics.connectedAt : null;
+        }
+
+        function formatTimelineClock(value) {
+            if (!Number.isFinite(value)) return '--:--:--.---';
+            const totalMs = Math.max(0, Math.floor(value));
+            const milliseconds = totalMs % 1000;
+            const totalSeconds = Math.floor(totalMs / 1000);
+            const seconds = totalSeconds % 60;
+            const totalMinutes = Math.floor(totalSeconds / 60);
+            const minutes = totalMinutes % 60;
+            const hours = Math.floor(totalMinutes / 60);
+            const pad2 = (part) => String(part).padStart(2, '0');
+            const pad3 = (part) => String(part).padStart(3, '0');
+            return `${hours}:${pad2(minutes)}:${pad2(seconds)}.${pad3(milliseconds)}`;
+        }
+
         function computeNetworkQuality(rttMs, stabilityMs, oneWayJitterMs) {
             if (!Number.isFinite(rttMs)) {
                 return { label: 'In attesa', score: 0, barClass: 'bg-slate-600' };
@@ -843,6 +873,7 @@
                 remotePeer: document.getElementById('networkRemotePeer')?.innerText,
                 transport: document.getElementById('networkTransport')?.innerText,
                 signaling: document.getElementById('networkSignaling')?.innerText,
+                timelineClock: document.getElementById('networkTimelineClock')?.innerText,
                 rtt: document.getElementById('networkRtt')?.innerText,
                 bestRtt: document.getElementById('networkBestRtt')?.innerText,
                 offset: document.getElementById('networkOffset')?.innerText,
@@ -1824,6 +1855,7 @@
                 };
 
                 if (role === 'host') {
+                    diagnostics.update({ timelineNow: () => performance.now() });
                     /*
                      * Host branch:
                      *
@@ -1906,6 +1938,7 @@
                     transport,
                     now: () => diagnosticClockClient?.now() ?? performance.now(),
                 });
+                diagnostics.update({ timelineNow: () => diagnosticClockClient?.now() ?? performance.now() });
                 guestRoom.onConnected((payload) => {
                     // The guest learns its assigned color from the room accept
                     // payload, then the board can rotate automatically.

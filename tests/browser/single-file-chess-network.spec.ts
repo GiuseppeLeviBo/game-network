@@ -94,6 +94,9 @@ test("diagnostic probes exercise adaptive timing without changing the chess game
     await expect.poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().probeSamples)).not.toBe("0");
     await expect.poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().lookahead)).not.toBe("--");
     await expect.poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().probeSlack)).not.toBe("--");
+    await expect
+      .poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().timelineClock))
+      .toMatch(/^\d+:\d{2}:\d{2}\.\d{3}$/);
 
     await expect.poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().oneWaySamples)).not.toBe("0");
     await expect.poll(() => guest.evaluate(() => window.__CHESS_GAME_ADAPTER__.getSnapshot().fen)).toBe(guestFenBefore);
@@ -400,6 +403,7 @@ declare global {
         quality: string;
         oneWay?: string;
         oneWaySamples?: string;
+        timelineClock?: string;
         lookahead?: string;
         probeSlack?: string;
         probeSamples?: string;
