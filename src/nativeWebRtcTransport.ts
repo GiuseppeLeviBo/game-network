@@ -58,10 +58,26 @@ interface DataChannelPayload {
 
 interface PeerState {
   connection: RTCPeerConnection;
-  dataChannel?: RTCDataChannel;
-  queue: DataChannelPayload[];
+  dataChannels: Partial<Record<TransportChannelName, RTCDataChannel>>;
+  queueByChannel: Record<TransportChannelName, DataChannelPayload[]>;
   pendingCandidates: RTCIceCandidateInit[];
 }
+
+const TRANSPORT_CHANNELS: readonly TransportChannelName[] = ["control", "realtime", "sync"];
+
+const DATA_CHANNEL_OPTIONS: Record<TransportChannelName, RTCDataChannelInit> = {
+  control: {
+    ordered: true,
+  },
+  realtime: {
+    ordered: false,
+    maxRetransmits: 0,
+  },
+  sync: {
+    ordered: false,
+    maxRetransmits: 0,
+  },
+};
 
 export class NativeWebRtcTransport implements GameNetworkTransport {
   private readonly messageSlot = new EventSlot<[TransportMessage]>();
@@ -102,12 +118,13 @@ export class NativeWebRtcTransport implements GameNetworkTransport {
 
   async connect(peerId: PeerId): Promise<void> {
     const state = this.getOrCreatePeerState(peerId);
-    if (state.dataChannel?.readyState === "open") return;
+    if (areAllDataChannelsOpen(state)) return;
 
-    const dataChannel = state.connection.createDataChannel("game-network", {
-      ordered: true,
-    });
-    this.registerDataChannel(peerId, state, dataChannel);
+    for (const channel of TRANSPORT_CHANNELS) {
+      if (state.dataChannels[channel]) continue;
+      const dataChannel = state.connection.createDataChannel(channel, DATA_CHANNEL_OPTIONS[channel]);
+      this.registerDataChannel(peerId, state, dataChannel);
+    }
 
     const offer = await state.connection.createOffer();
     await state.connection.setLocalDescription(offer);
@@ -116,18 +133,19 @@ export class NativeWebRtcTransport implements GameNetworkTransport {
       description: offer,
     });
 
-    await waitForDataChannelOpen(dataChannel);
+    await waitForPeerDataChannelsOpen(state);
   }
 
   send(toPeerId: PeerId, channel: TransportChannelName, data: unknown): void {
     const state = this.getOrCreatePeerState(toPeerId);
     const payload = createPayload(channel, data);
-    if (state.dataChannel?.readyState === "open") {
-      state.dataChannel.send(JSON.stringify(payload));
+    const dataChannel = state.dataChannels[channel];
+    if (dataChannel?.readyState === "open") {
+      dataChannel.send(JSON.stringify(payload));
       return;
     }
 
-    state.queue.push(payload);
+    state.queueByChannel[channel].push(payload);
   }
 
   broadcast(channel: TransportChannelName, data: unknown): void {
@@ -138,7 +156,9 @@ export class NativeWebRtcTransport implements GameNetworkTransport {
 
   close(): void {
     for (const state of this.peers.values()) {
-      state.dataChannel?.close();
+      for (const dataChannel of Object.values(state.dataChannels)) {
+        dataChannel?.close();
+      }
       state.connection.close();
     }
     this.peers.clear();
@@ -200,7 +220,8 @@ export class NativeWebRtcTransport implements GameNetworkTransport {
     const connection = new RTCPeerConnection(this.rtcConfig);
     const state: PeerState = {
       connection,
-      queue: [],
+      dataChannels: {},
+      queueByChannel: createChannelQueues(),
       pendingCandidates: [],
     };
 
@@ -233,13 +254,20 @@ export class NativeWebRtcTransport implements GameNetworkTransport {
     state: PeerState,
     dataChannel: RTCDataChannel,
   ): void {
-    state.dataChannel = dataChannel;
-    dataChannel.addEventListener("open", () => this.flushDataQueue(state));
+    const channel = dataChannelLabelToTransportChannel(dataChannel.label);
+    if (!channel) {
+      dataChannel.close();
+      this.errorSlot.emit(new Error(`Unknown DataChannel label from ${peerId}: ${dataChannel.label}`));
+      return;
+    }
+
+    state.dataChannels[channel] = dataChannel;
+    dataChannel.addEventListener("open", () => this.flushDataQueue(state, channel));
     dataChannel.addEventListener("message", (event) => {
       const payload = parseDataChannelPayload(event.data);
       if (!payload) return;
       this.messageSlot.emit({
-        channel: payload.channel,
+        channel,
         fromPeerId: peerId,
         toPeerId: this.localPeerId,
         data: payload.data,
@@ -250,15 +278,15 @@ export class NativeWebRtcTransport implements GameNetworkTransport {
     );
 
     if (dataChannel.readyState === "open") {
-      this.flushDataQueue(state);
+      this.flushDataQueue(state, channel);
     }
   }
 
-  private flushDataQueue(state: PeerState): void {
-    const dataChannel = state.dataChannel;
+  private flushDataQueue(state: PeerState, channel: TransportChannelName): void {
+    const dataChannel = state.dataChannels[channel];
     if (!dataChannel || dataChannel.readyState !== "open") return;
-    const queue = [...state.queue];
-    state.queue.length = 0;
+    const queue = [...state.queueByChannel[channel]];
+    state.queueByChannel[channel].length = 0;
     for (const payload of queue) {
       dataChannel.send(JSON.stringify(payload));
     }
@@ -291,6 +319,22 @@ function createPayload(channel: TransportChannelName, data: unknown): DataChanne
     channel,
     data,
   };
+}
+
+function createChannelQueues(): Record<TransportChannelName, DataChannelPayload[]> {
+  return {
+    control: [],
+    realtime: [],
+    sync: [],
+  };
+}
+
+function dataChannelLabelToTransportChannel(label: string): TransportChannelName | undefined {
+  return isTransportChannelName(label) ? label : undefined;
+}
+
+function areAllDataChannelsOpen(state: PeerState): boolean {
+  return TRANSPORT_CHANNELS.every((channel) => state.dataChannels[channel]?.readyState === "open");
 }
 
 function parseHubMessage(data: unknown): HubServerMessage | undefined {
@@ -351,4 +395,14 @@ function waitForDataChannelOpen(dataChannel: RTCDataChannel): Promise<void> {
       once: true,
     });
   });
+}
+
+function waitForPeerDataChannelsOpen(state: PeerState): Promise<void> {
+  return Promise.all(
+    TRANSPORT_CHANNELS.map((channel) => {
+      const dataChannel = state.dataChannels[channel];
+      if (!dataChannel) return Promise.reject(new Error(`Missing ${channel} DataChannel`));
+      return waitForDataChannelOpen(dataChannel);
+    }),
+  ).then(() => undefined);
 }

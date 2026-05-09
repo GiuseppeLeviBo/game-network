@@ -99,9 +99,15 @@ Game Network currently ships as one local Node project with:
 
 - a reusable game networking library in `src/`;
 - a local WebSocket hub;
+- transport adapters for WebSocket, PeerJS, and native WebRTC;
 - a single-port launcher/server;
 - an included chess demo under `single-file-chess-game/`;
 - automated Node and Playwright tests.
+
+The native WebRTC adapter maps `control`, `realtime`, and `sync` to distinct
+`RTCDataChannel` objects. `control` is ordered and reliable; `realtime` and
+`sync` are unordered and stale-droppable, so timing samples do not wait behind
+older gameplay traffic on the same application queue.
 
 The intended packaged shape is:
 
@@ -257,6 +263,8 @@ Current coverage includes:
 - room limits and input routing;
 - host snapshot delivery;
 - low-level clock sync math and sampling;
+- native WebRTC delivery over distinct `control`, `realtime`, and `sync`
+  DataChannels;
 - assisted one-way timing metadata on inputs, snapshots, and game events;
 - adaptive diagnostic probes that measure raw arrival versus scheduled timeline
   margin without changing game state;

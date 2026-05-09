@@ -374,6 +374,18 @@ If the selected adapter does not support multiple DataChannel reliability modes,
 the core should still expose logical channels and let the adapter downgrade to
 the available capability.
 
+The native WebRTC adapter maps these logical channels to distinct
+`RTCDataChannel` instances:
+
+- `control`: ordered and reliable;
+- `realtime`: unordered with `maxRetransmits: 0`, so stale samples can be
+  dropped instead of queued;
+- `sync`: unordered with `maxRetransmits: 0`, optimized for fresh clock samples.
+
+WebSocket and PeerJS transports may still multiplex the same logical channels
+inside their own payload format, but native WebRTC exposes the lower-latency
+shape needed by the clock synchronization path.
+
 ## 13. Simulation Model
 
 The first supported simulation model is host authoritative.
