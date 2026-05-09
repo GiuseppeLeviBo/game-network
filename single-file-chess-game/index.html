@@ -425,7 +425,9 @@
         let chessNetworkRole = 'local';
         let chessNetworkLocalColor = null;
         let chessNetworkRemoteColor = null;
+        let chessNetworkHostColor = 'white';
         let chessNetworkAutoRotate = true;
+        let chessNetworkRound = 1;
         let networkPanelInterval = null;
         const networkDiagnostics = {
             status: 'offline',
@@ -497,6 +499,8 @@
         function initGame(config = null) {
             clearInterval(timerInterval);
             timerInterval = null;
+            closeGameOverModal();
+            document.getElementById('promotionModal').classList.add('hidden');
             selectedSquare = null;
             legalMoves = [];
             isAiThinking = false;
@@ -545,6 +549,11 @@
         function restartGame() {
             if (chessNetworkRole === 'guest') {
                 window.__CHESS_GAME_NETWORK__?.sendRestartRequest?.();
+                playSound('move');
+                return;
+            }
+            if (chessNetworkRole === 'host') {
+                restartNetworkHostGame();
                 playSound('move');
                 return;
             }
@@ -794,12 +803,22 @@
             setNetworkRole: (role, localColor = null, options = {}) => {
                 chessNetworkRole = role;
                 const normalizedColor = normalizeNetworkColor(localColor);
+                const normalizedHostColor = normalizeNetworkColor(options.hostColor);
+                if (normalizedHostColor) {
+                    chessNetworkHostColor = normalizedHostColor;
+                }
                 if (normalizedColor) {
                     chessNetworkLocalColor = normalizedColor;
                     chessNetworkRemoteColor = oppositeNetworkColor(normalizedColor);
+                    if (!normalizedHostColor && role === 'host') {
+                        chessNetworkHostColor = normalizedColor;
+                    } else if (!normalizedHostColor && role === 'guest') {
+                        chessNetworkHostColor = oppositeNetworkColor(normalizedColor);
+                    }
                 } else if ((role === 'host' || role === 'guest') && !chessNetworkLocalColor) {
                     chessNetworkLocalColor = role === 'host' ? 'white' : 'black';
                     chessNetworkRemoteColor = oppositeNetworkColor(chessNetworkLocalColor);
+                    chessNetworkHostColor = role === 'host' ? chessNetworkLocalColor : chessNetworkRemoteColor;
                 }
                 if (typeof options.autoRotate === 'boolean') {
                     chessNetworkAutoRotate = options.autoRotate;
@@ -815,13 +834,28 @@
                 moveHistory: liveMoveHistory,
                 clocks,
                 gameActive,
+                hostColor: chessNetworkHostColor,
+                round: chessNetworkRound,
             }),
             applySnapshot: (snapshot) => {
                 if (!snapshot?.fen) return;
                 isApplyingRemoteSnapshot = true;
                 try {
+                    const snapshotHostColor = normalizeNetworkColor(snapshot.hostColor);
+                    if (snapshotHostColor && (chessNetworkRole === 'host' || chessNetworkRole === 'guest')) {
+                        const localColor = chessNetworkRole === 'host'
+                            ? snapshotHostColor
+                            : oppositeNetworkColor(snapshotHostColor);
+                        window.__CHESS_GAME_ADAPTER__?.setNetworkRole?.(chessNetworkRole, localColor, {
+                            autoRotate: chessNetworkAutoRotate,
+                            hostColor: snapshotHostColor,
+                        });
+                    }
+                    chessNetworkRound = Number.isFinite(snapshot.round) ? snapshot.round : chessNetworkRound;
                     clearInterval(timerInterval);
                     timerInterval = null;
+                    closeGameOverModal();
+                    document.getElementById('promotionModal').classList.add('hidden');
                     game = createGame(snapshot.fen);
                     liveMoveHistory = Array.isArray(snapshot.moveHistory) ? snapshot.moveHistory : [];
                     clocks = snapshot.clocks ? { ...snapshot.clocks } : clocks;
@@ -833,6 +867,8 @@
                     document.getElementById('resumeLiveBtn').classList.add('hidden');
                     updateTimerDisplays();
                     updateMoveHistoryLog();
+                    setupPlayerCards();
+                    applyNetworkBoardPerspective();
                     renderBoard();
                 } catch (error) {
                     console.error('Remote chess snapshot rejected:', error);
@@ -890,6 +926,18 @@
             // board state, for example new game or FEN load.
             if (isApplyingRemoteSnapshot) return;
             window.__CHESS_GAME_NETWORK__?.sendSnapshot?.();
+        }
+
+        function restartNetworkHostGame() {
+            if (chessNetworkRole === 'host') {
+                chessNetworkHostColor = oppositeNetworkColor(chessNetworkHostColor || chessNetworkLocalColor || 'white');
+                chessNetworkLocalColor = chessNetworkHostColor;
+                chessNetworkRemoteColor = oppositeNetworkColor(chessNetworkHostColor);
+                chessNetworkRound += 1;
+                applyNetworkBoardPerspective();
+            }
+            initGame();
+            publishNetworkSnapshot();
         }
 
         function setupPlayerCards() {
@@ -1698,8 +1746,13 @@
                             return;
                         }
                         if (input?.kind === 'restart') {
-                            initGame();
-                            sendSnapshot();
+                            restartNetworkHostGame();
+                        }
+                    });
+                    transport.onMessage((message) => {
+                        const data = message.data;
+                        if (data?.type === 'game_event' && data.roomId === roomId && data.payload?.event?.kind === 'restart') {
+                            restartNetworkHostGame();
                         }
                     });
                     diagnostics.update({ status: 'listening' });
@@ -1751,7 +1804,18 @@
                     transport,
                     clockResponder,
                     sendLocalMove: (move) => guestRoom.localPlayer && guestRoom.sendInput({ kind: 'move', move }),
-                    sendRestartRequest: () => guestRoom.localPlayer && guestRoom.sendInput({ kind: 'restart' }),
+                    sendRestartRequest: () => {
+                        transport.send(hostPeerId, 'control', {
+                            version: 1,
+                            type: 'game_event',
+                            roomId,
+                            senderPeerId: peerId,
+                            payload: {
+                                hostSeq: 0,
+                                event: { kind: 'restart' },
+                            },
+                        });
+                    },
                 };
             } catch (error) {
                 console.error('Chess network diagnostics failed:', error);

@@ -96,6 +96,92 @@ test("single-file chess can assign black to the host and rotates local black per
   }
 });
 
+test("single-file chess restarts a network game without reload and swaps colors", async ({ browser }) => {
+  const hub = await startHub();
+  const hostServer = await startStaticServer(gameNetworkRoot);
+  const guestServer = await startStaticServer(gameNetworkRoot);
+  const context = await browser.newContext();
+  const host = await context.newPage();
+  const guest = await context.newPage();
+  await installChessPageStubs(host);
+  await installChessPageStubs(guest);
+
+  const room = `CHESS-RESTART-${Date.now()}`;
+  const hostUrl = `${hostServer.url}/single-file-chess-game/?transport=websocket&role=host&room=${room}&peer=chess-host-${room}&hostColor=white&signaling=${hub.url}`;
+  const guestUrl = `${guestServer.url}/single-file-chess-game/?transport=websocket&role=guest&room=${room}&peer=chess-guest-${room}&host=chess-host-${room}&signaling=${hub.url}`;
+
+  try {
+    await host.goto(hostUrl);
+    await guest.goto(guestUrl);
+
+    await expectConnected(host);
+    await expectConnected(guest);
+    await expect(host.locator("#playerBadge")).toHaveText("Bianco (Tu)");
+    await expect(guest.locator("#playerBadge")).toHaveText("Nero (Tu)");
+
+    await host.evaluate(() => {
+      window.__CHESS_GAME_ADAPTER__.applyMove({ from: "E2", to: "E4" });
+      window.__CHESS_GAME_NETWORK__.sendSnapshot();
+    });
+    await expectFenToContain(guest, '"E4":"P"');
+
+    await guest.evaluate(() => {
+      window.__CHESS_GAME_NETWORK__.sendRestartRequest();
+    });
+
+    await expect(host.locator("#playerBadge")).toHaveText("Nero (Tu)", { timeout: 10_000 });
+    await expect(guest.locator("#playerBadge")).toHaveText("Bianco (Tu)", { timeout: 10_000 });
+    await expectFenToContain(host, '"E2":"P"');
+    await expectFenToContain(guest, '"E2":"P"');
+    await expect.poll(() => guest.evaluate(() => window.__CHESS_GAME_ADAPTER__.getSnapshot().fen)).not.toContain('"E4":"P"');
+    await expect(host.locator("#gameOverModal")).toHaveClass(/hidden/);
+    await expect(guest.locator("#gameOverModal")).toHaveClass(/hidden/);
+  } finally {
+    await context.close();
+    await closeServer(hostServer.server);
+    await closeServer(guestServer.server);
+    await closeServer(hub.server);
+  }
+});
+
+test("guest game-over restart button asks host for a new swapped-color game", async ({ browser }) => {
+  const hub = await startHub();
+  const hostServer = await startStaticServer(gameNetworkRoot);
+  const guestServer = await startStaticServer(gameNetworkRoot);
+  const context = await browser.newContext();
+  const host = await context.newPage();
+  const guest = await context.newPage();
+  await installChessPageStubs(host);
+  await installChessPageStubs(guest);
+
+  const room = `CHESS-GAMEOVER-${Date.now()}`;
+  const hostUrl = `${hostServer.url}/single-file-chess-game/?transport=websocket&role=host&room=${room}&peer=chess-host-${room}&hostColor=white&signaling=${hub.url}`;
+  const guestUrl = `${guestServer.url}/single-file-chess-game/?transport=websocket&role=guest&room=${room}&peer=chess-guest-${room}&host=chess-host-${room}&signaling=${hub.url}`;
+
+  try {
+    await host.goto(hostUrl);
+    await guest.goto(guestUrl);
+
+    await expectConnected(host);
+    await expectConnected(guest);
+
+    await guest.evaluate(() => {
+      document.getElementById("gameOverModal")?.classList.remove("hidden");
+    });
+    await expect(guest.locator("#gameOverModal")).not.toHaveClass(/hidden/);
+    await guest.locator("#gameOverModal button", { hasText: "Nuova Partita" }).click();
+
+    await expect(guest.locator("#gameOverModal")).toHaveClass(/hidden/, { timeout: 10_000 });
+    await expect(host.locator("#playerBadge")).toHaveText("Nero (Tu)", { timeout: 10_000 });
+    await expect(guest.locator("#playerBadge")).toHaveText("Bianco (Tu)", { timeout: 10_000 });
+  } finally {
+    await context.close();
+    await closeServer(hostServer.server);
+    await closeServer(guestServer.server);
+    await closeServer(hub.server);
+  }
+});
+
 async function installChessPageStubs(page: Page) {
   await page.route("**/*", async (route) => {
     const url = route.request().url();
@@ -253,6 +339,7 @@ declare global {
     __CHESS_GAME_NETWORK__: {
       sendSnapshot(): void;
       sendLocalMove(move: { from: string; to: string; promotion?: string }): void;
+      sendRestartRequest(): void;
     };
     __CHESS_NETWORK_DIAGNOSTICS__: {
       getSnapshot(): { quality: string };
