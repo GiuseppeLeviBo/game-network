@@ -99,6 +99,13 @@ Current deployed relay:
 wss://game-network.giuseppe-levi.workers.dev/ws
 ```
 
+The same Worker also provides short redirect links for human-readable invites:
+
+```text
+https://game-network.giuseppe-levi.workers.dev/j/CHESS-1
+https://game-network.giuseppe-levi.workers.dev/h/CHESS-1
+```
+
 ## 4. Test
 
 Open the GitHub Pages dashboard:

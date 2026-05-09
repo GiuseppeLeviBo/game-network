@@ -7,7 +7,12 @@ It exposes:
 ```text
 GET /health
 WS  /ws?room=ROOM-ID
+GET /j/ROOM-ID
+GET /h/ROOM-ID
 ```
+
+`/j/ROOM-ID` and `/h/ROOM-ID` are short redirects to the hosted chess guest and
+host pages. They are meant for human-readable invites.
 
 Each room is handled by one Durable Object. The browser transport protocol is
 the same protocol used by the local Node WebSocket hub:

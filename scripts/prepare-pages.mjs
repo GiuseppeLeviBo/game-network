@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const rootDir = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const outDir = join(rootDir, "pages-dist");
 const publicRelayUrl = "wss://game-network.giuseppe-levi.workers.dev/ws";
+const publicShortLinkBase = "https://game-network.giuseppe-levi.workers.dev";
 
 await rm(outDir, { recursive: true, force: true });
 await mkdir(outDir, { recursive: true });
@@ -85,7 +86,7 @@ function renderIndex() {
           <button id="copyGuest" class="button secondary" type="button">Copia link guest</button>
           <button id="newRoom" class="button secondary" type="button">Nuova stanza</button>
         </div>
-        <label>Link guest</label>
+        <label>Link guest breve</label>
         <span id="guestLink" class="code">Configura il relay WSS.</span>
         <div id="copyStatus" class="toast" aria-live="polite"></div>
       </div>
@@ -159,6 +160,7 @@ function renderIndex() {
       const hostPeer = 'chess-host-' + room;
       const guestPeer = 'chess-guest-' + room;
       const signaling = signalingUrlForRoom();
+      const hostColor = hostColorInput.value === 'black' ? 'black' : 'white';
       if (!signaling) throw new Error('Inserisci il relay WSS');
       const params = new URLSearchParams({
         transport: 'websocket',
@@ -166,16 +168,25 @@ function renderIndex() {
         room,
         peer: role === 'host' ? hostPeer : guestPeer,
         signaling,
+        hostColor,
       });
-      if (role === 'host') params.set('hostColor', hostColorInput.value === 'black' ? 'black' : 'white');
       if (role === 'guest') params.set('host', hostPeer);
       return new URL('single-file-chess-game/index.html?' + params.toString(), window.location.href).toString();
+    }
+
+    function shortGuestUrl() {
+      const room = cleanRoom(roomInput.value);
+      const hostColor = hostColorInput.value === 'black' ? 'black' : 'white';
+      const url = new URL('/j/' + encodeURIComponent(room), '${publicShortLinkBase}');
+      if (hostColor === 'black') url.searchParams.set('hostColor', 'black');
+      return url.toString();
     }
 
     function updateLinks() {
       try {
         const hostUrl = chessUrl('host');
-        const guestUrl = chessUrl('guest');
+        chessUrl('guest');
+        const guestUrl = shortGuestUrl();
         openHost.href = hostUrl;
         guestLink.textContent = guestUrl;
         copyStatus.textContent = '';

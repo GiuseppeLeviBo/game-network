@@ -4,6 +4,8 @@ const MAX_MESSAGES_PER_10_SECONDS = 240;
 const RATE_WINDOW_MS = 10_000;
 const ROOM_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const CHANNELS = new Set(["control", "realtime", "sync"]);
+const DASHBOARD_URL = "https://giuseppelevibo.github.io/game-network/";
+const PUBLIC_RELAY_URL = "wss://game-network.giuseppe-levi.workers.dev/ws";
 
 export default {
   async fetch(request, env) {
@@ -17,8 +19,11 @@ export default {
       });
     }
 
+    const shortInvite = createShortInviteRedirect(url);
+    if (shortInvite) return shortInvite;
+
     if (url.pathname !== "/ws") {
-      return new Response("Game Network Relay. Use /ws?room=ROOM-ID for WebSocket.", {
+      return new Response("Game Network Relay. Use /ws?room=ROOM-ID for WebSocket, /j/ROOM for guest links, or /h/ROOM for host links.", {
         status: 200,
         headers: {
           "content-type": "text/plain; charset=utf-8",
@@ -183,6 +188,53 @@ export class GameNetworkRoom {
 function sanitizeRoom(value) {
   const room = String(value ?? "").trim();
   return ROOM_NAME_PATTERN.test(room) ? room : null;
+}
+
+function createShortInviteRedirect(url) {
+  const match = url.pathname.match(/^\/(j|join|h|host)\/([^/]+)\/?$/);
+  if (!match) return null;
+
+  const roomId = sanitizeRoom(decodeURIComponent(match[2]));
+  if (!roomId) {
+    return json(
+      {
+        ok: false,
+        error: "invalid_room",
+        hint: "Use /j/ROOM or /h/ROOM with letters, numbers, dash or underscore.",
+      },
+      400,
+    );
+  }
+
+  const role = match[1] === "h" || match[1] === "host" ? "host" : "guest";
+  const hostColor = normalizeHostColor(url.searchParams.get("hostColor") ?? url.searchParams.get("color"));
+  const target = buildChessUrl(role, roomId, hostColor);
+  return Response.redirect(target.toString(), 302);
+}
+
+function buildChessUrl(role, roomId, hostColor) {
+  const target = new URL("single-file-chess-game/index.html", DASHBOARD_URL);
+  const hostPeer = `chess-host-${roomId}`;
+  target.searchParams.set("transport", "websocket");
+  target.searchParams.set("role", role);
+  target.searchParams.set("room", roomId);
+  target.searchParams.set("peer", role === "host" ? hostPeer : `chess-guest-${roomId}`);
+  target.searchParams.set("signaling", relayUrlForRoom(roomId));
+  target.searchParams.set("hostColor", hostColor);
+  if (role === "guest") target.searchParams.set("host", hostPeer);
+  return target;
+}
+
+function relayUrlForRoom(roomId) {
+  const relayUrl = new URL(PUBLIC_RELAY_URL);
+  relayUrl.searchParams.set("room", roomId);
+  return relayUrl.toString();
+}
+
+function normalizeHostColor(value) {
+  return String(value ?? "").toLowerCase() === "black" || String(value ?? "").toLowerCase() === "b"
+    ? "black"
+    : "white";
 }
 
 function parseClientMessage(serialized) {

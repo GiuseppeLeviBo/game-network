@@ -29,6 +29,11 @@ wss://game-network.giuseppe-levi.workers.dev/ws
 ```
 
 Choose or generate a room, open the host page, then share the guest link.
+The dashboard creates short guest links through the relay Worker, for example:
+
+```text
+https://game-network.giuseppe-levi.workers.dev/j/CHESS-1
+```
 
 ## Quick Start For A Player Or Teacher
 
