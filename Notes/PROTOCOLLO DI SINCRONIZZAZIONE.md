@@ -66,8 +66,9 @@ Schema operativo:
 1. Bootstrap con 32 scambi rapidi.
 2. Scarta il 70–80% peggiore per RTT.
 3. Sui migliori campioni, stima offset con mediana.
-4. Aggiorna drift con regressione lineare sugli ultimi 30–120 s.
-5. Ripeti mini-burst ogni 2–5 s, più spesso se il jitter cresce.[^3][^5]
+4. Scarta gli offset incoerenti con un filtro robusto mediana/MAD.
+5. Aggiorna drift e intercetta con una regressione lineare coerente sugli stessi campioni.
+6. Ripeti mini-burst ogni 2–5 s, più spesso se il jitter cresce.[^3][^5]
 
 ## Regole per restare entro 10 ms
 
@@ -97,9 +98,10 @@ ogni ciclo di sync:
 
   prendi i campioni con delta minimo
   theta_hat = mediana(theta dei migliori campioni)
-  aggiorna modello:
+  opzionale: scarta offset outlier con mediana + MAD
+  aggiorna modello atomico:
     remote_time_est = a * local_mono + b
-  con b corretto da theta_hat e a corretto lentamente dal drift storico
+  salvando insieme a e b dalla stessa regressione
 ```
 
 Per schedulare un evento:
@@ -121,6 +123,7 @@ Proposta:
 - Burst iniziale da 32 campioni, poi 8 campioni ogni 2 s.
 - Filtro: tieni il miglior 20–30% per RTT.
 - Scheduler eventi con lookahead di 30–50 ms.
+- Burst di sync spaziati nel tempo, per evitare campioni tutti nello stesso slice di scheduling.
 - Correzione offset lenta, per esempio max 1 ms per ciclo, salvo re-lock iniziale.[^5][^3]
 
 [^1]: https://zenn.dev/su8/articles/8bec80c3da97df?locale=en

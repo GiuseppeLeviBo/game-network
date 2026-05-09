@@ -152,7 +152,7 @@ const clockClient = new ClockSyncClient({
   transport: guestTransport,
 });
 
-clockClient.requestBurst(32);
+clockClient.requestBurstScheduled(16, 40);
 ```
 
 Useful APIs:
@@ -161,7 +161,14 @@ Useful APIs:
 - `hostTimeFromLocal(localTime)`;
 - `localTimeFromHost(hostTime)`;
 - `scheduleAtHostTime(hostTime, callback)`;
-- `getEstimate()`: RTT, best RTT, offset, drift, lock status.
+- `requestBurst(count)`: immediate compatibility burst;
+- `requestBurstScheduled(count, spacingMs)`: preferred browser/WebRTC burst
+  because samples are spread across multiple event-loop and network turns;
+- `getEstimate()`: RTT, best RTT, offset, drift, intercept, lock status.
+
+`scheduleAtHostTime()` uses `setTimeout()` under the hood. It is useful for
+countdowns, UI triggers, diagnostic probes, and events scheduled with a small
+lookahead, but it is not a hard real-time browser scheduler.
 
 ### Assisted One-Way Delay
 

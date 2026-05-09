@@ -437,11 +437,13 @@ rtt    = (t4 - t1) - (t3 - t2)
 offset = ((t2 - t1) + (t3 - t4)) / 2
 ```
 
-The client keeps recent samples, filters the lowest-RTT subset, estimates median
-offset, and fits a linear model for drift. This produces a virtual host clock
-without changing the operating-system clock. Games can use it for synchronized
-round starts, rendering interpolation, and event scheduling, while the host
-remains authoritative for simulation state.
+The client keeps recent samples, filters the lowest-RTT subset, rejects offset
+outliers with a median/MAD pass, estimates median offset, and fits a linear
+model for drift and intercept. Drift and intercept are stored together as one
+atomic estimate so the virtual host clock is not rebuilt from partial model
+state. This produces a virtual host clock without changing the operating-system
+clock. Games can use it for synchronized round starts, rendering interpolation,
+and event scheduling, while the host remains authoritative for simulation state.
 
 After the bidirectional clock-sync phase has a stable model, game messages can
 carry assisted one-way timing metadata:

@@ -2025,8 +2025,8 @@
                         maxSamples: 120,
                     });
                     diagnostics.update({ status: 'connected', connectedPeerId: remotePeerId });
-                    diagnosticClockClient.requestBurst(16);
-                    syncBurstTimer = setInterval(() => diagnosticClockClient.requestBurst(8), 2000);
+                    diagnosticClockClient.requestBurstScheduled(16, 40);
+                    syncBurstTimer = setInterval(() => diagnosticClockClient.requestBurstScheduled(8, 30), 2000);
                     syncPanelTimer = setInterval(updateEstimate, 300);
                 };
 

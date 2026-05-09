@@ -7,6 +7,7 @@ import {
   OneWayDelayTracker,
   computeClockSyncSample,
   computeOneWayDelaySample,
+  filterOffsetOutliersByMad,
   selectBestSamples,
   type MonotonicClock,
 } from "../src/index.js";
@@ -77,7 +78,70 @@ describe("clock sync", () => {
     assert.equal(estimate.selectedSampleCount, 2);
     assert.equal(estimate.rttMs, 19);
     assert.equal(estimate.offsetMs, 49);
+    assert.ok(Number.isFinite(estimate.interceptMs));
     assert.ok(Math.abs(client.now() - 3050.5) < 0.05);
+
+    host.close();
+    client.close();
+  });
+
+  it("filters offset outliers after selecting low-RTT samples", () => {
+    const samples = [
+      { syncSeq: 1, t1: 0, t2: 0, t3: 0, t4: 0, rttMs: 10, offsetMs: 50, errorBoundMs: 5 },
+      { syncSeq: 2, t1: 0, t2: 0, t3: 0, t4: 0, rttMs: 11, offsetMs: 51, errorBoundMs: 5.5 },
+      { syncSeq: 3, t1: 0, t2: 0, t3: 0, t4: 0, rttMs: 12, offsetMs: 49, errorBoundMs: 6 },
+      { syncSeq: 4, t1: 0, t2: 0, t3: 0, t4: 0, rttMs: 13, offsetMs: 150, errorBoundMs: 6.5 },
+    ];
+
+    assert.deepEqual(
+      filterOffsetOutliersByMad(samples, 3).map((sample) => sample.syncSeq),
+      [1, 2, 3],
+    );
+  });
+
+  it("filters offset outliers when the median absolute deviation is zero", () => {
+    const samples = [
+      { syncSeq: 1, t1: 0, t2: 0, t3: 0, t4: 0, rttMs: 10, offsetMs: 50, errorBoundMs: 5 },
+      { syncSeq: 2, t1: 0, t2: 0, t3: 0, t4: 0, rttMs: 11, offsetMs: 50, errorBoundMs: 5.5 },
+      { syncSeq: 3, t1: 0, t2: 0, t3: 0, t4: 0, rttMs: 12, offsetMs: 50, errorBoundMs: 6 },
+      { syncSeq: 4, t1: 0, t2: 0, t3: 0, t4: 0, rttMs: 13, offsetMs: 150, errorBoundMs: 6.5 },
+    ];
+
+    assert.deepEqual(
+      filterOffsetOutliersByMad(samples, 3).map((sample) => sample.syncSeq),
+      [1, 2, 3],
+    );
+  });
+
+  it("schedules burst samples over time and can cancel pending samples", async () => {
+    const network = new FakeNetwork();
+    const hostTransport = network.createPeer("host-peer");
+    const guestTransport = network.createPeer("guest-peer");
+    const host = new ClockSyncHost({
+      roomId: "ROOM-1",
+      transport: hostTransport,
+      now: () => performance.now(),
+    });
+    const client = new ClockSyncClient({
+      roomId: "ROOM-1",
+      hostPeerId: "host-peer",
+      transport: guestTransport,
+      now: () => performance.now(),
+      bestSampleRatio: 1,
+    });
+
+    client.requestBurstScheduled(3, 20);
+    await new Promise((resolve) => setTimeout(resolve, 90));
+
+    const samples = client.getSamples();
+    assert.equal(samples.length, 3);
+    assert.ok(samples[1].t1 - samples[0].t1 >= 10);
+    assert.ok(samples[2].t1 - samples[1].t1 >= 10);
+
+    const cancelled = client.requestBurstScheduled(3, 20);
+    cancelled.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 90));
+    assert.equal(client.getSamples().length, 3);
 
     host.close();
     client.close();

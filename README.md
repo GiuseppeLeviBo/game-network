@@ -276,6 +276,8 @@ Current coverage includes:
 - room limits and input routing;
 - host snapshot delivery;
 - low-level clock sync math and sampling;
+- spaced sync bursts, atomic drift/intercept estimates, and MAD offset
+  outlier filtering;
 - native WebRTC delivery over distinct `control`, `realtime`, and `sync`
   DataChannels;
 - assisted one-way timing metadata on inputs, snapshots, and game events;

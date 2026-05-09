@@ -24,6 +24,7 @@ export interface ClockSyncClientOptions {
   now?: MonotonicClock;
   bestSampleRatio?: number;
   maxSamples?: number;
+  offsetMadFactor?: number;
 }
 
 export interface ClockSyncSample {
@@ -45,10 +46,15 @@ export interface ClockSyncEstimate {
   rttMs: number;
   bestRttMs: number;
   drift: number;
+  interceptMs: number;
   updatedAt: number;
 }
 
 export interface ScheduledHostEvent {
+  cancel(): void;
+}
+
+export interface ScheduledSyncBurst {
   cancel(): void;
 }
 
@@ -74,6 +80,8 @@ export interface OneWayDelayEstimate {
 const DEFAULT_BEST_SAMPLE_RATIO = 0.25;
 const DEFAULT_MAX_SAMPLES = 96;
 const DEFAULT_ONE_WAY_MAX_SAMPLES = 120;
+const DEFAULT_OFFSET_MAD_FACTOR = 3;
+const DEFAULT_OFFSET_OUTLIER_FLOOR_MS = 1;
 
 export function defaultMonotonicClock(): number {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -134,13 +142,13 @@ export class ClockSyncHost {
   }
 
   private handleMessage(fromPeerId: PeerId, data: unknown): void {
+    const t2 = this.now();
     if (!isProtocolEnvelope(data) || data.roomId !== this.options.roomId) return;
     if (data.type !== "sync_req") return;
 
     const payload = data.payload as Partial<SyncRequestPayload>;
     if (!isFiniteNumber(payload.syncSeq) || !isFiniteNumber(payload.t1)) return;
 
-    const t2 = this.now();
     const t3 = this.now();
     this.options.transport.send(
       fromPeerId,
@@ -167,6 +175,7 @@ export class ClockSyncClient {
   private readonly samples: ClockSyncSample[] = [];
   private readonly bestSampleRatio: number;
   private readonly maxSamples: number;
+  private readonly offsetMadFactor: number;
   private nextSeq = 0;
   private estimate: ClockSyncEstimate = {
     locked: false,
@@ -176,6 +185,7 @@ export class ClockSyncClient {
     rttMs: Number.POSITIVE_INFINITY,
     bestRttMs: Number.POSITIVE_INFINITY,
     drift: 1,
+    interceptMs: 0,
     updatedAt: 0,
   };
 
@@ -183,6 +193,7 @@ export class ClockSyncClient {
     this.nowSource = options.now ?? defaultMonotonicClock;
     this.bestSampleRatio = clampRatio(options.bestSampleRatio ?? DEFAULT_BEST_SAMPLE_RATIO);
     this.maxSamples = Math.max(1, Math.floor(options.maxSamples ?? DEFAULT_MAX_SAMPLES));
+    this.offsetMadFactor = normalizeOffsetMadFactor(options.offsetMadFactor);
     this.unsubscribe = options.transport.onMessage((message) => {
       if (message.channel !== "sync") return;
       this.handleMessage(message.data);
@@ -215,18 +226,41 @@ export class ClockSyncClient {
     return Array.from({ length: safeCount }, () => this.requestSample());
   }
 
+  requestBurstScheduled(count: number, spacingMs = 25): ScheduledSyncBurst {
+    const safeCount = Math.max(0, Math.floor(count));
+    const safeSpacingMs = Math.max(0, spacingMs);
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    let cancelled = false;
+
+    for (let index = 0; index < safeCount; index += 1) {
+      const timer = setTimeout(() => {
+        if (!cancelled) this.requestSample();
+      }, index * safeSpacingMs);
+      timers.push(timer);
+    }
+
+    return {
+      cancel: () => {
+        cancelled = true;
+        for (const timer of timers) {
+          clearTimeout(timer);
+        }
+      },
+    };
+  }
+
   now(): number {
     return this.hostTimeFromLocal(this.nowSource());
   }
 
   hostTimeFromLocal(localTime: number): number {
     if (!this.estimate.locked) return localTime;
-    return this.estimate.drift * localTime + this.interceptForCurrentEstimate();
+    return this.estimate.drift * localTime + this.estimate.interceptMs;
   }
 
   localTimeFromHost(hostTime: number): number {
     if (!this.estimate.locked) return hostTime;
-    return (hostTime - this.interceptForCurrentEstimate()) / this.estimate.drift;
+    return (hostTime - this.estimate.interceptMs) / this.estimate.drift;
   }
 
   scheduleAtHostTime(hostTime: number, callback: () => void): ScheduledHostEvent {
@@ -273,12 +307,13 @@ export class ClockSyncClient {
   }
 
   private updateEstimate(): void {
-    const selected = selectBestSamples(this.samples, this.bestSampleRatio);
+    const rttSelected = selectBestSamples(this.samples, this.bestSampleRatio);
+    const selected = filterOffsetOutliersByMad(rttSelected, this.offsetMadFactor);
     if (selected.length === 0) return;
 
     const offsetMs = median(selected.map((sample) => sample.offsetMs));
     const rttMs = median(selected.map((sample) => sample.rttMs));
-    const bestRttMs = selected[0].rttMs;
+    const bestRttMs = rttSelected[0]?.rttMs ?? selected[0].rttMs;
     const regression = estimateLinearClock(selected);
 
     this.estimate = {
@@ -289,15 +324,9 @@ export class ClockSyncClient {
       rttMs,
       bestRttMs,
       drift: regression.drift,
-      updatedAt: selected[selected.length - 1].t4,
+      interceptMs: regression.intercept,
+      updatedAt: Math.max(...selected.map((sample) => sample.t4)),
     };
-  }
-
-  private interceptForCurrentEstimate(): number {
-    if (this.samples.length < 2) {
-      return this.estimate.offsetMs;
-    }
-    return estimateLinearClock(selectBestSamples(this.samples, this.bestSampleRatio)).intercept;
   }
 }
 
@@ -309,6 +338,26 @@ export function selectBestSamples(
   const sorted = [...samples].sort((a, b) => a.rttMs - b.rttMs);
   const keep = Math.max(1, Math.ceil(sorted.length * clampRatio(bestSampleRatio)));
   return sorted.slice(0, keep);
+}
+
+export function filterOffsetOutliersByMad(
+  samples: readonly ClockSyncSample[],
+  madFactor = DEFAULT_OFFSET_MAD_FACTOR,
+): ClockSyncSample[] {
+  if (samples.length <= 2 || !Number.isFinite(madFactor) || madFactor <= 0) {
+    return [...samples];
+  }
+
+  const offsets = samples.map((sample) => sample.offsetMs);
+  const center = median(offsets);
+  const deviations = offsets.map((offset) => Math.abs(offset - center));
+  const mad = median(deviations);
+  const threshold = Math.max(
+    Number.isFinite(mad) ? madFactor * mad : 0,
+    DEFAULT_OFFSET_OUTLIER_FLOOR_MS,
+  );
+  const filtered = samples.filter((sample) => Math.abs(sample.offsetMs - center) <= threshold);
+  return filtered.length > 0 ? filtered : [...samples];
 }
 
 export class OneWayDelayTracker {
@@ -407,6 +456,11 @@ function median(values: readonly number[]): number {
 function clampRatio(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_BEST_SAMPLE_RATIO;
   return Math.min(1, Math.max(0.01, value));
+}
+
+function normalizeOffsetMadFactor(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_OFFSET_MAD_FACTOR;
+  return Math.max(0, value);
 }
 
 function isFiniteNumber(value: unknown): value is number {
