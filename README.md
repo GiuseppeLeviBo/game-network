@@ -257,8 +257,9 @@ Current coverage includes:
 - room limits and input routing;
 - host snapshot delivery;
 - low-level clock sync math and sampling;
+- assisted one-way timing metadata on inputs, snapshots, and game events;
 - chess browser integration with host snapshots, guest moves, color assignment,
-  and automatic black perspective.
+  automatic black perspective, and channel diagnostics.
 
 ## Roadmap Before Publishing
 

@@ -288,14 +288,14 @@
                         <div id="networkOneWayJitter" class="code-font mt-1 text-lg font-bold text-slate-300">--</div>
                     </div>
                     <div class="bg-slate-950/70 rounded-xl border border-slate-800 p-3 text-center">
-                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Campioni OW</div>
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Eventi OW</div>
                         <div id="networkOneWaySamples" class="code-font mt-1 text-lg font-bold text-slate-300">0</div>
                     </div>
                 </div>
 
                 <div class="bg-slate-900/70 rounded-2xl border border-slate-800 p-3">
                     <div class="flex items-center justify-between">
-                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Qualita sync</span>
+                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Qualita canale</span>
                         <span id="networkQuality" class="text-[10px] font-bold uppercase text-slate-400">In attesa</span>
                     </div>
                     <div class="mt-2 h-2 rounded-full bg-slate-950 overflow-hidden">
@@ -624,7 +624,11 @@
                 params.get('service') || params.get('serviceUrl'),
             );
             const status = resolveNetworkStatus(role, transport);
-            const quality = computeNetworkQuality(networkDiagnostics.bestRttMs ?? networkDiagnostics.rttMs, networkDiagnostics.offsetMs);
+            const quality = computeNetworkQuality(
+                networkDiagnostics.bestRttMs ?? networkDiagnostics.rttMs,
+                clockStabilityMs(),
+                networkDiagnostics.oneWayJitterMs,
+            );
 
             setText('networkRole', role);
             setText('networkRoom', room);
@@ -641,7 +645,10 @@
             setText('networkOneWayJitter', formatMs(networkDiagnostics.oneWayJitterMs));
             setText('networkOneWaySamples', String(networkDiagnostics.oneWaySamples ?? 0));
             setText('networkQuality', quality.label);
-            setText('networkLastSync', networkDiagnostics.lastSyncAt ? `Ultimo sync: ${formatTime(networkDiagnostics.lastSyncAt)}` : 'Nessun campione clock sync ricevuto.');
+            const oneWayLabel = networkDiagnostics.oneWaySamples > 0
+                ? `Eventi OW: ${networkDiagnostics.oneWaySamples}`
+                : 'OW in attesa di mosse/snapshot.';
+            setText('networkLastSync', networkDiagnostics.lastSyncAt ? `Ultimo sync: ${formatTime(networkDiagnostics.lastSyncAt)}. ${oneWayLabel}` : 'Nessun campione clock sync ricevuto.');
 
             const badge = document.getElementById('networkStatusBadge');
             badge.innerText = status.label;
@@ -771,13 +778,15 @@
             return String(value);
         }
 
-        function computeNetworkQuality(rttMs, offsetMs) {
+        function computeNetworkQuality(rttMs, stabilityMs, oneWayJitterMs) {
             if (!Number.isFinite(rttMs)) {
                 return { label: 'In attesa', score: 0, barClass: 'bg-slate-600' };
             }
-            const score = Math.max(0, Math.min(100, 100 - rttMs * 1.6));
-            if (score >= 75) return { label: 'Ottima', score, barClass: 'bg-emerald-400' };
-            if (score >= 45) return { label: 'Giocabile', score, barClass: 'bg-amber-400' };
+            const jitterPenalty = Number.isFinite(oneWayJitterMs) ? oneWayJitterMs * 1.5 : 0;
+            const stabilityPenalty = Number.isFinite(stabilityMs) ? Math.abs(stabilityMs) * 4 : 0;
+            const score = Math.max(0, Math.min(100, 100 - rttMs - jitterPenalty - stabilityPenalty));
+            if (score >= 70) return { label: 'Ottima', score, barClass: 'bg-emerald-400' };
+            if (score >= 40) return { label: 'Giocabile', score, barClass: 'bg-amber-400' };
             return { label: 'Instabile', score, barClass: 'bg-red-400' };
         }
 
@@ -1762,7 +1771,6 @@
                     });
                     hostRoom.onInput((payload) => {
                         const input = payload.input;
-                        updateOneWayStats(payload, input?.kind ?? 'input');
                         if (input?.kind === 'clock_stats') {
                             const inputPlayer = hostRoom.players.find((player) => player.id === payload.playerId);
                             diagnostics.update({
@@ -1776,6 +1784,7 @@
                             });
                             return;
                         }
+                        updateOneWayStats(payload, input?.kind ?? 'input');
                         if (input?.kind === 'move') {
                             // Guest input is validated by the chess engine on
                             // the host. If accepted, the host publishes the new

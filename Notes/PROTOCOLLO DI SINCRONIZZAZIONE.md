@@ -10,6 +10,7 @@ Il protocollo e stato implementato come servizio di basso livello separato dal r
 - `src/protocol.ts` definisce `sync_req` e `sync_resp`.
 - `src/transport.ts` aggiunge il canale logico `sync`.
 - `tests/clockSync.test.ts` copre formula NTP, filtro sui campioni a RTT basso e scambio host/client su `FakeTransport`.
+- `sentAt`, `receivedAt` e `oneWayDelayMs` sono disponibili su input, snapshot ed eventi di gioco come diagnostica one-way assistita.
 
 Responsabilita SOLID:
 
@@ -18,6 +19,12 @@ Responsabilita SOLID:
 - `ClockSync`: stima offset, RTT, drift e clock virtuale.
 - `Room`: gestisce host, guest e player.
 - `Game`: decide come usare il clock per input, snapshot, countdown ed eventi.
+
+Nota sui campioni one-way: devono misurare messaggi applicativi reali, per
+esempio mosse, input, snapshot o eventi, non il traffico periodico usato solo
+per aggiornare il pannello diagnostico. In questo modo il numero di campioni
+mostrato da una demo indica quante osservazioni utili al gioco sono state viste
+in quella direzione.
 
 Limite attuale: `sync` e un canale logico multiplexato sullo stesso collegamento fisico di `control` e `realtime`. Una fase successiva potra mappare `sync` su un DataChannel fisico dedicato, unordered e loss-tolerant.
 

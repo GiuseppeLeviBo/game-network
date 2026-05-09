@@ -431,6 +431,19 @@ without changing the operating-system clock. Games can use it for synchronized
 round starts, rendering interpolation, and event scheduling, while the host
 remains authoritative for simulation state.
 
+After the bidirectional clock-sync phase has a stable model, game messages can
+carry assisted one-way timing metadata:
+
+- `sentAt`: sender timestamp in its local or virtual application clock;
+- `receivedAt`: receiver timestamp captured as close as possible to delivery;
+- `oneWayDelayMs`: diagnostic estimate computed by the receiver.
+
+These values are not a replacement for clock synchronization. They are useful
+only after the receiver can compare the sender timestamp against an aligned
+clock model. Implementations should keep housekeeping traffic, such as
+`clock_stats`, separate from gameplay one-way samples so dashboards do not mix
+maintenance traffic with player inputs or snapshots.
+
 ## 15. Message Encoding
 
 The first version should use JSON for clarity and debuggability.
