@@ -322,6 +322,11 @@
                         <div id="networkQualityBar" class="h-full w-0 bg-slate-600 transition-all duration-300"></div>
                     </div>
                     <div id="networkLastSync" class="code-font mt-2 text-[11px] text-slate-500 truncate">Nessun campione clock sync ricevuto.</div>
+                    <div class="mt-3 grid grid-cols-3 gap-2">
+                        <button id="networkTelemetryReset" type="button" class="rounded-lg bg-slate-800 px-2 py-1 text-[10px] font-bold uppercase text-slate-300 hover:bg-slate-700">Reset</button>
+                        <button id="networkTelemetryCsv" type="button" class="rounded-lg bg-slate-800 px-2 py-1 text-[10px] font-bold uppercase text-slate-300 hover:bg-slate-700">CSV</button>
+                        <button id="networkTelemetryJson" type="button" class="rounded-lg bg-slate-800 px-2 py-1 text-[10px] font-bold uppercase text-slate-300 hover:bg-slate-700">JSON</button>
+                    </div>
                 </div>
             </div>
 
@@ -482,6 +487,14 @@
             timelineNow: null,
             connectedAt: null
         };
+        const networkTelemetry = {
+            startedAt: Date.now(),
+            lastSampleAt: 0,
+            maxSamples: 20000,
+            maxProbes: 20000,
+            samples: [],
+            probes: [],
+        };
 
         const unicodePieces = {
             'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙',
@@ -611,6 +624,12 @@
             updateNetworkPanel();
             if (networkPanelInterval) clearInterval(networkPanelInterval);
             networkPanelInterval = setInterval(updateNetworkPanel, 50);
+            const resetButton = document.getElementById('networkTelemetryReset');
+            const csvButton = document.getElementById('networkTelemetryCsv');
+            const jsonButton = document.getElementById('networkTelemetryJson');
+            if (resetButton) resetButton.onclick = resetNetworkTelemetry;
+            if (csvButton) csvButton.onclick = downloadNetworkTelemetryCsv;
+            if (jsonButton) jsonButton.onclick = downloadNetworkTelemetryJson;
         }
 
         function updateNetworkPanel(overrides = {}) {
@@ -689,6 +708,7 @@
             const bar = document.getElementById('networkQualityBar');
             bar.style.width = `${quality.score}%`;
             bar.className = `h-full transition-all duration-300 ${quality.barClass}`;
+            recordNetworkTelemetrySample();
         }
 
         function setText(id, value) {
@@ -852,6 +872,155 @@
             return Math.round(Math.max(25, Math.min(120, baseline + jitter * 3 + 10)));
         }
 
+        function pushLimited(array, value, maxLength) {
+            array.push(value);
+            if (array.length > maxLength) {
+                array.splice(0, array.length - maxLength);
+            }
+        }
+
+        function finiteOrNull(value) {
+            return Number.isFinite(value) ? value : null;
+        }
+
+        function currentNetworkLabels() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                role: params.get('role') || 'local',
+                room: params.get('room') || params.get('roomId') || '--',
+                transport: params.get('transport') || 'standalone',
+                peerId: params.get('peer') || params.get('peerId') || defaultPeerId(params.get('role') || 'local'),
+            };
+        }
+
+        function recordNetworkTelemetrySample(force = false) {
+            const now = Date.now();
+            if (!force && now - networkTelemetry.lastSampleAt < 250) return;
+            networkTelemetry.lastSampleAt = now;
+            const labels = currentNetworkLabels();
+            pushLimited(networkTelemetry.samples, {
+                type: 'sample',
+                wallMs: now,
+                wallIso: new Date(now).toISOString(),
+                sinceResetMs: now - networkTelemetry.startedAt,
+                role: labels.role,
+                room: labels.room,
+                transport: labels.transport,
+                peerId: labels.peerId,
+                timelineMs: finiteOrNull(readTimelineNow()),
+                rttMs: finiteOrNull(networkDiagnostics.rttMs),
+                bestRttMs: finiteOrNull(networkDiagnostics.bestRttMs),
+                stabilityMs: finiteOrNull(clockStabilityMs()),
+                oneWayDelayMs: finiteOrNull(networkDiagnostics.oneWayDelayMs),
+                oneWayJitterMs: finiteOrNull(networkDiagnostics.oneWayJitterMs),
+                oneWaySamples: networkDiagnostics.oneWaySamples ?? 0,
+                adaptiveLookaheadMs: finiteOrNull(networkDiagnostics.adaptiveLookaheadMs),
+                probeSlackMs: finiteOrNull(networkDiagnostics.probeSlackMs),
+                probeSamples: networkDiagnostics.probeSamples ?? 0,
+            }, networkTelemetry.maxSamples);
+        }
+
+        function recordNetworkProbe(payload, probe, probeSlackMs) {
+            const now = Date.now();
+            const labels = currentNetworkLabels();
+            pushLimited(networkTelemetry.probes, {
+                type: 'probe',
+                wallMs: now,
+                wallIso: new Date(now).toISOString(),
+                sinceResetMs: now - networkTelemetry.startedAt,
+                role: labels.role,
+                room: labels.room,
+                transport: labels.transport,
+                peerId: labels.peerId,
+                timelineMs: finiteOrNull(readTimelineNow()),
+                probeSeq: Number.isFinite(probe?.seq) ? probe.seq : null,
+                probeDirection: typeof probe?.direction === 'string' ? probe.direction : '',
+                probeScheduledAt: finiteOrNull(probe?.scheduledAt),
+                probeLookaheadMs: finiteOrNull(probe?.lookaheadMs),
+                sentAt: finiteOrNull(payload?.sentAt),
+                receivedAt: finiteOrNull(payload?.receivedAt),
+                oneWayDelayMs: finiteOrNull(payload?.oneWayDelayMs),
+                probeSlackMs: finiteOrNull(probeSlackMs),
+            }, networkTelemetry.maxProbes);
+        }
+
+        function resetNetworkTelemetry() {
+            networkTelemetry.startedAt = Date.now();
+            networkTelemetry.lastSampleAt = 0;
+            networkTelemetry.samples.length = 0;
+            networkTelemetry.probes.length = 0;
+            recordNetworkTelemetrySample(true);
+        }
+
+        function getNetworkTelemetry() {
+            return {
+                version: 1,
+                exportedAt: new Date().toISOString(),
+                startedAt: new Date(networkTelemetry.startedAt).toISOString(),
+                samplePeriodMs: 250,
+                labels: currentNetworkLabels(),
+                samples: [...networkTelemetry.samples],
+                probes: [...networkTelemetry.probes],
+            };
+        }
+
+        function csvCell(value) {
+            if (value === null || value === undefined) return '';
+            const text = String(value);
+            return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+        }
+
+        function networkTelemetryCsv() {
+            const columns = [
+                'type', 'wallMs', 'wallIso', 'sinceResetMs', 'role', 'room', 'transport', 'peerId',
+                'timelineMs', 'rttMs', 'bestRttMs', 'stabilityMs', 'oneWayDelayMs', 'oneWayJitterMs',
+                'oneWaySamples', 'adaptiveLookaheadMs', 'probeSlackMs', 'probeSamples',
+                'probeSeq', 'probeDirection', 'probeScheduledAt', 'probeLookaheadMs', 'sentAt', 'receivedAt',
+            ];
+            const rows = [
+                ...networkTelemetry.samples,
+                ...networkTelemetry.probes,
+            ].sort((a, b) => (a.wallMs ?? 0) - (b.wallMs ?? 0));
+            return [
+                columns.join(','),
+                ...rows.map((row) => columns.map((column) => csvCell(row[column])).join(',')),
+            ].join('\n');
+        }
+
+        function downloadText(filename, content, type) {
+            const blob = new Blob([content], { type });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.append(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+        }
+
+        function telemetryFilename(extension) {
+            const labels = currentNetworkLabels();
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            return `game-network-${labels.room}-${labels.role}-${stamp}.${extension}`;
+        }
+
+        function downloadNetworkTelemetryJson() {
+            downloadText(
+                telemetryFilename('json'),
+                JSON.stringify(getNetworkTelemetry(), null, 2),
+                'application/json',
+            );
+        }
+
+        function downloadNetworkTelemetryCsv() {
+            downloadText(
+                telemetryFilename('csv'),
+                networkTelemetryCsv(),
+                'text/csv',
+            );
+        }
+
         /*
          * Game Network diagnostics API used by the example and by browser tests.
          *
@@ -864,6 +1033,11 @@
          */
         window.__CHESS_NETWORK_DIAGNOSTICS__ = {
             update: updateNetworkPanel,
+            resetTelemetry: resetNetworkTelemetry,
+            getTelemetry: getNetworkTelemetry,
+            getTelemetryCsv: networkTelemetryCsv,
+            downloadTelemetryJson: downloadNetworkTelemetryJson,
+            downloadTelemetryCsv: downloadNetworkTelemetryCsv,
             getSnapshot: () => ({
                 role: document.getElementById('networkRole')?.innerText,
                 room: document.getElementById('networkRoom')?.innerText,
@@ -1776,10 +1950,12 @@
 
                 const updateProbeTimeline = (payload, probe) => {
                     if (!Number.isFinite(payload?.receivedAt) || !Number.isFinite(probe?.scheduledAt)) return;
+                    const probeSlackMs = probe.scheduledAt - payload.receivedAt;
                     diagnostics.update({
-                        probeSlackMs: probe.scheduledAt - payload.receivedAt,
+                        probeSlackMs,
                         probeSamples: (networkDiagnostics.probeSamples ?? 0) + 1,
                     });
+                    recordNetworkProbe(payload, probe, probeSlackMs);
                 };
 
                 const currentLookaheadMs = () => networkDiagnostics.adaptiveLookaheadMs ?? 50;

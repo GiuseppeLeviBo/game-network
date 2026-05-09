@@ -14,6 +14,18 @@ The included chess app is an example game and a practical test bed. The network
 system is intended to remain independent from chess so future games can reuse the
 same service.
 
+The chess diagnostics panel can export telemetry as CSV or JSON. For a useful
+measurement run, let the connection warm up for about one minute, click `Reset`
+on both peers, record for a few minutes, then export both CSV files and analyze
+them with:
+
+```bash
+npm run analyze:telemetry -- --warmup-ms=0 host.csv guest.csv
+```
+
+The analyzer reports percentiles for RTT, one-way delay, jitter, lookahead,
+probe margin, and, when two CSV files are provided, an estimated timeline delta.
+
 ## Try It Online
 
 Open the hosted dashboard:
@@ -132,6 +144,7 @@ Design notes: [Architecture And Service Model](docs/ARCHITECTURE.md).
 | `npm run test:chess` | Run the browser chess integration tests. |
 | `npm run test:browser` | Run all Playwright browser tests. |
 | `npm run test:all` | Run Node and browser tests. |
+| `npm run analyze:telemetry -- host.csv guest.csv` | Analyze exported chess diagnostics CSV files. |
 | `npm run dev:websocket-hub` | Start only the local WebSocket hub on `127.0.0.1:9100`. |
 | `npm run dev:websocket-hub:lan` | Start only the WebSocket hub on `0.0.0.0:9100`. |
 | `npm run dev:webrtc-stack` | Start the older multi-server transport test stack. |

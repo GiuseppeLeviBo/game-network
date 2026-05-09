@@ -97,6 +97,13 @@ test("diagnostic probes exercise adaptive timing without changing the chess game
     await expect
       .poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().timelineClock))
       .toMatch(/^\d+:\d{2}:\d{2}\.\d{3}$/);
+    await expect
+      .poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getTelemetry().samples.length))
+      .toBeGreaterThan(0);
+    await expect
+      .poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getTelemetry().probes.length))
+      .toBeGreaterThan(0);
+    await expect(guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getTelemetryCsv())).resolves.toContain("probeSlackMs");
 
     await expect.poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().oneWaySamples)).not.toBe("0");
     await expect.poll(() => guest.evaluate(() => window.__CHESS_GAME_ADAPTER__.getSnapshot().fen)).toBe(guestFenBefore);
@@ -408,6 +415,8 @@ declare global {
         probeSlack?: string;
         probeSamples?: string;
       };
+      getTelemetry(): { samples: unknown[]; probes: unknown[] };
+      getTelemetryCsv(): string;
     };
   }
 }

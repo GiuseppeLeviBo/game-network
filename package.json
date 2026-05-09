@@ -18,6 +18,7 @@
     "dev:webrtc-stack": "npm run build && node scripts/start-webrtc-stack.mjs",
     "audit": "npm audit",
     "audit:prod": "npm audit --omit=dev",
+    "analyze:telemetry": "node scripts/analyze-telemetry.mjs",
     "test": "npm run build && node --test dist/tests/**/*.test.js",
     "test:browser": "playwright test",
     "test:chess": "playwright test --config playwright.chess.config.ts",
