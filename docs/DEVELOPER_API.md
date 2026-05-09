@@ -163,6 +163,59 @@ Useful APIs:
 - `scheduleAtHostTime(hostTime, callback)`;
 - `getEstimate()`: RTT, best RTT, offset, drift, lock status.
 
+### Assisted One-Way Delay
+
+Room messages now carry envelope timestamps:
+
+- host snapshots/events include `sentAt` in host time;
+- guest inputs can include `sentAt` in estimated host time when `GuestRoom` is
+  constructed with `now: () => clockClient.now()`;
+- room handlers receive timing metadata on payloads:
+  `sentAt`, `receivedAt`, and `oneWayDelayMs`.
+
+This is not a standalone clock synchronization method. Use the bidirectional
+clock sync first, then use one-way samples as a refinement for diagnostics,
+lookahead tuning, and critical-event scheduling.
+
+Example guest setup:
+
+```ts
+const clockClient = new ClockSyncClient({
+  roomId: "ROOM-1",
+  hostPeerId: "host-peer",
+  transport,
+});
+
+const guestRoom = new GuestRoom<GameInput, GameSnapshot>({
+  roomId: "ROOM-1",
+  displayName: "GST",
+  hostPeerId: "host-peer",
+  transport,
+  now: () => clockClient.now(),
+});
+```
+
+Example host use:
+
+```ts
+hostRoom.onInput((payload) => {
+  console.log("guest one-way delay", payload.oneWayDelayMs);
+});
+```
+
+For rolling diagnostics, use `OneWayDelayTracker`:
+
+```ts
+const oneWay = new OneWayDelayTracker();
+
+guestRoom.onSnapshot((payload) => {
+  if (payload.sentAt !== undefined && payload.receivedAt !== undefined) {
+    const estimate = oneWay.add(payload.sentAt, payload.receivedAt);
+    console.log(estimate.delayMs, estimate.jitterMs);
+  }
+});
+```
+
 For details see [PROTOCOLLO DI SINCRONIZZAZIONE](../Notes/PROTOCOLLO%20DI%20SINCRONIZZAZIONE.md).
 
 ## Recommended Game Integration Pattern

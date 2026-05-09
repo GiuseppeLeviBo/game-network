@@ -94,4 +94,48 @@ describe("host and guest rooms", () => {
     assert.deepEqual(inputs, [{ direction: "left" }]);
     assert.deepEqual(snapshots, [{ tick: 1, x: 12 }]);
   });
+
+  it("attaches assisted one-way timing metadata to inputs and snapshots", () => {
+    type Input = { direction: "left" | "right" };
+    type Snapshot = { tick: number; x: number };
+
+    const network = new FakeNetwork();
+    let hostNow = 1000;
+    let guestHostTime = 900;
+    const host = new HostRoom<Input, Snapshot>({
+      roomId: "ROOM-1",
+      maxPlayers: 2,
+      displayName: "Host",
+      transport: network.createPeer("host-peer"),
+      now: () => hostNow,
+    });
+    const guest = new GuestRoom<Input, Snapshot>({
+      roomId: "ROOM-1",
+      displayName: "ABC",
+      hostPeerId: "host-peer",
+      transport: network.createPeer("guest-peer"),
+      now: () => guestHostTime,
+    });
+
+    let inputDelay = -1;
+    let snapshotDelay = -1;
+
+    host.onInput((payload) => {
+      inputDelay = payload.oneWayDelayMs ?? -1;
+      hostNow = 1070;
+      guestHostTime = 1085;
+      host.sendSnapshot({ tick: payload.clientSeq, x: 12 });
+    });
+    guest.onSnapshot((payload) => {
+      snapshotDelay = payload.oneWayDelayMs ?? -1;
+    });
+
+    guest.join();
+    guestHostTime = 1050;
+    hostNow = 1065;
+    guest.sendInput({ direction: "left" });
+
+    assert.equal(inputDelay, 15);
+    assert.equal(snapshotDelay, 15);
+  });
 });

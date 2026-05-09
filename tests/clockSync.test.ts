@@ -4,7 +4,9 @@ import {
   ClockSyncClient,
   ClockSyncHost,
   FakeNetwork,
+  OneWayDelayTracker,
   computeClockSyncSample,
+  computeOneWayDelaySample,
   selectBestSamples,
   type MonotonicClock,
 } from "../src/index.js";
@@ -79,5 +81,31 @@ describe("clock sync", () => {
 
     host.close();
     client.close();
+  });
+
+  it("computes assisted one-way delay and tracks jitter", () => {
+    const sample = computeOneWayDelaySample({
+      sentAt: 1000,
+      receivedAt: 1016,
+      errorBoundMs: 5,
+      label: "snapshot",
+    });
+
+    assert.equal(sample.rawDelayMs, 16);
+    assert.equal(sample.delayMs, 16);
+    assert.equal(sample.errorBoundMs, 5);
+    assert.equal(sample.label, "snapshot");
+
+    const tracker = new OneWayDelayTracker({ maxSamples: 3 });
+    tracker.add(1000, 1016);
+    tracker.add(2000, 2018);
+    const estimate = tracker.add(3000, 3014);
+
+    assert.equal(estimate.locked, true);
+    assert.equal(estimate.sampleCount, 3);
+    assert.equal(estimate.delayMs, 16);
+    assert.equal(estimate.bestDelayMs, 14);
+    assert.equal(estimate.worstDelayMs, 18);
+    assert.equal(estimate.jitterMs, 2);
   });
 });

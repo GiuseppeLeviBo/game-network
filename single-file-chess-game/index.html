@@ -278,6 +278,21 @@
                     </div>
                 </div>
 
+                <div class="grid grid-cols-3 gap-2 pt-1">
+                    <div class="bg-slate-950/70 rounded-xl border border-slate-800 p-3 text-center">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">One-way</div>
+                        <div id="networkOneWay" class="code-font mt-1 text-lg font-bold text-slate-300">--</div>
+                    </div>
+                    <div class="bg-slate-950/70 rounded-xl border border-slate-800 p-3 text-center">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Jitter OW</div>
+                        <div id="networkOneWayJitter" class="code-font mt-1 text-lg font-bold text-slate-300">--</div>
+                    </div>
+                    <div class="bg-slate-950/70 rounded-xl border border-slate-800 p-3 text-center">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Campioni OW</div>
+                        <div id="networkOneWaySamples" class="code-font mt-1 text-lg font-bold text-slate-300">0</div>
+                    </div>
+                </div>
+
                 <div class="bg-slate-900/70 rounded-2xl border border-slate-800 p-3">
                     <div class="flex items-center justify-between">
                         <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Qualita sync</span>
@@ -438,6 +453,9 @@
             drift: null,
             connectedPeerId: null,
             lastSyncAt: null,
+            oneWayDelayMs: null,
+            oneWayJitterMs: null,
+            oneWaySamples: 0,
             connectedAt: null
         };
 
@@ -585,6 +603,9 @@
                 networkDiagnostics.drift = null;
                 networkDiagnostics.connectedPeerId = null;
                 networkDiagnostics.lastSyncAt = null;
+                networkDiagnostics.oneWayDelayMs = null;
+                networkDiagnostics.oneWayJitterMs = null;
+                networkDiagnostics.oneWaySamples = 0;
                 networkDiagnostics.connectedAt = null;
             }
             expireStaleNetworkStatus();
@@ -616,6 +637,9 @@
             setText('networkRtt', formatMs(networkDiagnostics.rttMs));
             setText('networkBestRtt', formatMs(networkDiagnostics.bestRttMs));
             setText('networkOffset', formatSignedMs(clockStabilityMs()));
+            setText('networkOneWay', formatMs(networkDiagnostics.oneWayDelayMs));
+            setText('networkOneWayJitter', formatMs(networkDiagnostics.oneWayJitterMs));
+            setText('networkOneWaySamples', String(networkDiagnostics.oneWaySamples ?? 0));
             setText('networkQuality', quality.label);
             setText('networkLastSync', networkDiagnostics.lastSyncAt ? `Ultimo sync: ${formatTime(networkDiagnostics.lastSyncAt)}` : 'Nessun campione clock sync ricevuto.');
 
@@ -781,6 +805,9 @@
                 rtt: document.getElementById('networkRtt')?.innerText,
                 bestRtt: document.getElementById('networkBestRtt')?.innerText,
                 offset: document.getElementById('networkOffset')?.innerText,
+                oneWay: document.getElementById('networkOneWay')?.innerText,
+                oneWayJitter: document.getElementById('networkOneWayJitter')?.innerText,
+                oneWaySamples: document.getElementById('networkOneWaySamples')?.innerText,
                 quality: document.getElementById('networkQuality')?.innerText,
             })
         };
@@ -1629,7 +1656,7 @@
                 const [
                     { WebSocketTransport },
                     { HostRoom, GuestRoom },
-                    { ClockSyncHost, ClockSyncClient },
+                    { ClockSyncHost, ClockSyncClient, OneWayDelayTracker },
                 ] = await Promise.all([
                     import(new URL('webSocketTransport.js', moduleBase)),
                     import(new URL('room.js', moduleBase)),
@@ -1651,6 +1678,17 @@
                 let syncPanelTimer = null;
                 let guestJoinTimer = null;
                 let lastClockStatsSentAt = 0;
+                const oneWayTracker = new OneWayDelayTracker({ maxSamples: 120 });
+
+                const updateOneWayStats = (payload, label) => {
+                    if (!Number.isFinite(payload?.sentAt) || !Number.isFinite(payload?.receivedAt)) return;
+                    const estimate = oneWayTracker.add(payload.sentAt, payload.receivedAt, { label });
+                    diagnostics.update({
+                        oneWayDelayMs: estimate.delayMs,
+                        oneWayJitterMs: estimate.jitterMs,
+                        oneWaySamples: estimate.sampleCount,
+                    });
+                };
 
                 const updateEstimate = () => {
                     if (!diagnosticClockClient) return;
@@ -1713,6 +1751,7 @@
                         displayName,
                         transport,
                         assignPlayerId: (index) => index === 0 ? requestedHostColor : oppositeChessColor(requestedHostColor),
+                        now: () => performance.now(),
                     });
                     const sendSnapshot = () => {
                         hostRoom.sendSnapshot(chessAdapter.getSnapshot());
@@ -1723,6 +1762,7 @@
                     });
                     hostRoom.onInput((payload) => {
                         const input = payload.input;
+                        updateOneWayStats(payload, input?.kind ?? 'input');
                         if (input?.kind === 'clock_stats') {
                             const inputPlayer = hostRoom.players.find((player) => player.id === payload.playerId);
                             diagnostics.update({
@@ -1772,6 +1812,7 @@
                     displayName,
                     hostPeerId,
                     transport,
+                    now: () => diagnosticClockClient?.now() ?? performance.now(),
                 });
                 guestRoom.onConnected((payload) => {
                     // The guest learns its assigned color from the room accept
@@ -1787,6 +1828,7 @@
                 guestRoom.onSnapshot((payload) => {
                     // Guest rendering follows the host snapshot. This is what
                     // keeps reconnects and optimistic guest moves honest.
+                    updateOneWayStats(payload, 'snapshot');
                     chessAdapter.applySnapshot(payload.snapshot);
                 });
                 guestRoom.join();

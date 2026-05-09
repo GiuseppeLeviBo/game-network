@@ -68,16 +68,25 @@ export interface PlayerLeftPayload {
 export interface InputEnvelope<GameInput> {
   playerId: PlayerId;
   clientSeq: number;
+  sentAt?: number;
+  receivedAt?: number;
+  oneWayDelayMs?: number;
   input: GameInput;
 }
 
 export interface SnapshotEnvelope<GameSnapshot> {
   hostSeq: number;
+  sentAt?: number;
+  receivedAt?: number;
+  oneWayDelayMs?: number;
   snapshot: GameSnapshot;
 }
 
 export interface GameEventEnvelope<GameEvent> {
   hostSeq: number;
+  sentAt?: number;
+  receivedAt?: number;
+  oneWayDelayMs?: number;
   event: GameEvent;
 }
 

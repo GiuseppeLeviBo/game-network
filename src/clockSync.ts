@@ -52,8 +52,28 @@ export interface ScheduledHostEvent {
   cancel(): void;
 }
 
+export interface OneWayDelaySample {
+  sentAt: number;
+  receivedAt: number;
+  rawDelayMs: number;
+  delayMs: number;
+  errorBoundMs?: number;
+  label?: string;
+}
+
+export interface OneWayDelayEstimate {
+  locked: boolean;
+  sampleCount: number;
+  delayMs: number;
+  bestDelayMs: number;
+  worstDelayMs: number;
+  jitterMs: number;
+  updatedAt: number;
+}
+
 const DEFAULT_BEST_SAMPLE_RATIO = 0.25;
 const DEFAULT_MAX_SAMPLES = 96;
+const DEFAULT_ONE_WAY_MAX_SAMPLES = 120;
 
 export function defaultMonotonicClock(): number {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -77,6 +97,23 @@ export function computeClockSyncSample(
     rttMs,
     offsetMs,
     errorBoundMs: Math.max(0, rttMs / 2),
+  };
+}
+
+export function computeOneWayDelaySample(options: {
+  sentAt: number;
+  receivedAt: number;
+  errorBoundMs?: number;
+  label?: string;
+}): OneWayDelaySample {
+  const rawDelayMs = options.receivedAt - options.sentAt;
+  return {
+    sentAt: options.sentAt,
+    receivedAt: options.receivedAt,
+    rawDelayMs,
+    delayMs: Math.max(0, rawDelayMs),
+    errorBoundMs: options.errorBoundMs,
+    label: options.label,
   };
 }
 
@@ -272,6 +309,65 @@ export function selectBestSamples(
   const sorted = [...samples].sort((a, b) => a.rttMs - b.rttMs);
   const keep = Math.max(1, Math.ceil(sorted.length * clampRatio(bestSampleRatio)));
   return sorted.slice(0, keep);
+}
+
+export class OneWayDelayTracker {
+  private readonly samples: OneWayDelaySample[] = [];
+  private readonly maxSamples: number;
+
+  constructor(options: { maxSamples?: number } = {}) {
+    this.maxSamples = Math.max(1, Math.floor(options.maxSamples ?? DEFAULT_ONE_WAY_MAX_SAMPLES));
+  }
+
+  addSample(sample: OneWayDelaySample): OneWayDelayEstimate {
+    if (!Number.isFinite(sample.sentAt) || !Number.isFinite(sample.receivedAt) || !Number.isFinite(sample.delayMs)) {
+      return this.getEstimate();
+    }
+    this.samples.push(sample);
+    if (this.samples.length > this.maxSamples) {
+      this.samples.splice(0, this.samples.length - this.maxSamples);
+    }
+    return this.getEstimate();
+  }
+
+  add(sentAt: number, receivedAt: number, options: { errorBoundMs?: number; label?: string } = {}): OneWayDelayEstimate {
+    return this.addSample(computeOneWayDelaySample({ sentAt, receivedAt, ...options }));
+  }
+
+  getSamples(): readonly OneWayDelaySample[] {
+    return [...this.samples];
+  }
+
+  getEstimate(): OneWayDelayEstimate {
+    if (this.samples.length === 0) {
+      return {
+        locked: false,
+        sampleCount: 0,
+        delayMs: Number.POSITIVE_INFINITY,
+        bestDelayMs: Number.POSITIVE_INFINITY,
+        worstDelayMs: Number.POSITIVE_INFINITY,
+        jitterMs: Number.POSITIVE_INFINITY,
+        updatedAt: 0,
+      };
+    }
+
+    const delays = this.samples.map((sample) => sample.delayMs);
+    const delayMs = median(delays);
+    const deviations = delays.map((delay) => Math.abs(delay - delayMs));
+    return {
+      locked: true,
+      sampleCount: this.samples.length,
+      delayMs,
+      bestDelayMs: Math.min(...delays),
+      worstDelayMs: Math.max(...delays),
+      jitterMs: median(deviations),
+      updatedAt: this.samples[this.samples.length - 1].receivedAt,
+    };
+  }
+
+  reset(): void {
+    this.samples.length = 0;
+  }
 }
 
 function estimateLinearClock(samples: readonly ClockSyncSample[]): { drift: number; intercept: number } {

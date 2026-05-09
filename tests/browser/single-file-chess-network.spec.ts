@@ -52,6 +52,8 @@ test("single-file chess mirrors host snapshots and guest moves over WebSocket", 
     });
     await expectFenToContain(host, '"E5":"p"');
     await expectFenToContain(guest, '"E5":"p"');
+    await expect.poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().oneWay)).not.toBe("--");
+    await expect.poll(() => host.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().oneWaySamples)).not.toBe("0");
   } catch (error) {
     failed = true;
     throw error;
@@ -342,7 +344,7 @@ declare global {
       sendRestartRequest(): void;
     };
     __CHESS_NETWORK_DIAGNOSTICS__: {
-      getSnapshot(): { quality: string };
+      getSnapshot(): { quality: string; oneWay?: string; oneWaySamples?: string };
     };
   }
 }

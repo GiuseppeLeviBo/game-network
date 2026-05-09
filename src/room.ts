@@ -15,6 +15,7 @@ import {
   type Unsubscribe,
 } from "./protocol.js";
 import type { GameNetworkTransport } from "./transport.js";
+import { defaultMonotonicClock, type MonotonicClock } from "./clockSync.js";
 
 export interface CreateHostRoomOptions<GameConfig = unknown> {
   roomId: RoomId;
@@ -23,6 +24,7 @@ export interface CreateHostRoomOptions<GameConfig = unknown> {
   gameConfig?: GameConfig;
   transport: GameNetworkTransport;
   assignPlayerId?: (index: number) => PlayerId;
+  now?: MonotonicClock;
 }
 
 export interface JoinRoomOptions {
@@ -30,6 +32,7 @@ export interface JoinRoomOptions {
   displayName: string;
   hostPeerId: string;
   transport: GameNetworkTransport;
+  now?: MonotonicClock;
 }
 
 export class HostRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = unknown, GameConfig = unknown> {
@@ -40,6 +43,7 @@ export class HostRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = u
   private readonly playersById = new Map<PlayerId, PlayerInfo>();
   private hostSeq = 0;
   private status: RoomInfo<GameConfig>["status"] = "lobby";
+  private readonly now: MonotonicClock;
 
   readonly roomId: RoomId;
   readonly localPlayer: PlayerInfo;
@@ -49,6 +53,7 @@ export class HostRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = u
       throw new Error("maxPlayers must be at least 1");
     }
 
+    this.now = options.now ?? defaultMonotonicClock;
     this.roomId = options.roomId;
     this.localPlayer = {
       id: this.assignPlayerId(0),
@@ -95,6 +100,7 @@ export class HostRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = u
         roomId: this.roomId,
         senderPeerId: this.localPlayer.peerId,
         seq: this.hostSeq,
+        sentAt: this.now(),
         payload: {
           hostSeq: this.hostSeq,
           snapshot,
@@ -112,6 +118,7 @@ export class HostRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = u
         roomId: this.roomId,
         senderPeerId: this.localPlayer.peerId,
         seq: this.hostSeq,
+        sentAt: this.now(),
         payload: {
           hostSeq: this.hostSeq,
           event,
@@ -144,7 +151,8 @@ export class HostRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = u
     if (data.type === "input") {
       const player = this.playersByPeerId.get(fromPeerId);
       if (!player) return;
-      const payload = data.payload as InputEnvelope<GameInput>;
+      const receivedAt = this.now();
+      const payload = addTimingMetadata(data.payload as InputEnvelope<GameInput>, data.sentAt, receivedAt);
       if (payload.playerId !== player.id) return;
       this.inputReceived.emit(payload);
     }
@@ -196,6 +204,7 @@ export class HostRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = u
         type: "join_accept",
         roomId: this.roomId,
         senderPeerId: this.localPlayer.peerId,
+        sentAt: this.now(),
         payload: {
           localPlayer: player,
           room: this.roomInfo,
@@ -212,6 +221,7 @@ export class HostRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = u
         type: "join_reject",
         roomId: this.roomId,
         senderPeerId: this.localPlayer.peerId,
+        sentAt: this.now(),
         payload: {
           reason,
           message,
@@ -227,6 +237,7 @@ export class HostRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = u
         type: "player_joined",
         roomId: this.roomId,
         senderPeerId: this.localPlayer.peerId,
+        sentAt: this.now(),
         payload: {
           player,
           players: [...this.players],
@@ -242,6 +253,7 @@ export class HostRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = u
         type: "room_update",
         roomId: this.roomId,
         senderPeerId: this.localPlayer.peerId,
+        sentAt: this.now(),
         payload: this.roomInfo,
       }),
     );
@@ -265,11 +277,13 @@ export class GuestRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = 
   private readonly eventReceived = new EventSlot<[GameEventEnvelope<GameEvent>]>();
   private clientSeq = 0;
   private room?: RoomInfo<GameConfig>;
+  private readonly now: MonotonicClock;
 
   readonly roomId: RoomId;
   localPlayer?: PlayerInfo;
 
   constructor(private readonly options: JoinRoomOptions) {
+    this.now = options.now ?? defaultMonotonicClock;
     this.roomId = options.roomId;
     options.transport.onMessage((message) => this.handleMessage(message.data));
   }
@@ -286,6 +300,7 @@ export class GuestRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = 
         type: "join_request",
         roomId: this.roomId,
         senderPeerId: this.options.transport.localPeerId,
+        sentAt: this.now(),
         payload: {
           displayName: this.options.displayName,
           clientProtocolVersion: PROTOCOL_VERSION,
@@ -312,6 +327,7 @@ export class GuestRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = 
         roomId: this.roomId,
         senderPeerId: this.options.transport.localPeerId,
         seq: this.clientSeq,
+        sentAt: this.now(),
         payload: {
           playerId: this.localPlayer.id,
           clientSeq: this.clientSeq,
@@ -372,14 +388,27 @@ export class GuestRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = 
     }
 
     if (data.type === "snapshot") {
-      this.snapshotReceived.emit(data.payload as SnapshotEnvelope<GameSnapshot>);
+      this.snapshotReceived.emit(addTimingMetadata(data.payload as SnapshotEnvelope<GameSnapshot>, data.sentAt, this.now()));
       return;
     }
 
     if (data.type === "game_event") {
-      this.eventReceived.emit(data.payload as GameEventEnvelope<GameEvent>);
+      this.eventReceived.emit(addTimingMetadata(data.payload as GameEventEnvelope<GameEvent>, data.sentAt, this.now()));
     }
   }
+}
+
+function addTimingMetadata<T extends { sentAt?: number; receivedAt?: number; oneWayDelayMs?: number }>(
+  payload: T,
+  sentAt: unknown,
+  receivedAt: number,
+): T {
+  const next = { ...payload, receivedAt };
+  if (typeof sentAt === "number" && Number.isFinite(sentAt)) {
+    next.sentAt = sentAt;
+    next.oneWayDelayMs = Math.max(0, receivedAt - sentAt);
+  }
+  return next;
 }
 
 function normalizeDisplayName(value: unknown): string {
@@ -387,4 +416,3 @@ function normalizeDisplayName(value: unknown): string {
   const trimmed = value.trim();
   return trimmed || "Player";
 }
-
