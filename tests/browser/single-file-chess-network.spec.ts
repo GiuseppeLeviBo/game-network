@@ -174,6 +174,9 @@ test("diagnostic probes exercise adaptive timing without changing the chess game
       .toBeGreaterThan(0);
     await expect(host.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getTelemetryCsv())).resolves.toContain("source");
     await expect(host.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getTelemetryCsv())).resolves.toContain("remote");
+    await expect(host.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getTelemetryCsv())).resolves.toContain("clockStabilityMs");
+    await expect(host.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getTelemetryCsv())).resolves.toContain("probeLateMs");
+    await expect(host.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getTelemetryCsv())).resolves.toContain("visibilityState");
 
     await expect.poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().oneWaySamples)).not.toBe("0");
     await expect.poll(() => guest.evaluate(() => window.__CHESS_GAME_ADAPTER__.getSnapshot().fen)).toBe(guestFenBefore);

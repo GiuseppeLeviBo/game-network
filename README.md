@@ -24,7 +24,8 @@ npm run analyze:telemetry -- --warmup-ms=0 host.csv guest.csv
 ```
 
 The analyzer reports percentiles for RTT, one-way delay, jitter, lookahead,
-probe margin, and, when two CSV files are provided, an estimated timeline delta.
+probe margin, late probes, tab visibility/focus state, and, when two CSV files
+are provided, an estimated timeline delta.
 
 ## Try It Online
 
