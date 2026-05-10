@@ -60,7 +60,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       sendHtml(response, await renderServiceDashboard());
       return;
     }
-    sendHtml(response, await renderDashboard(url.searchParams.get("room") || createRoomCode()));
+    sendHtml(response, await renderDashboard(url.searchParams.get("room") || createRoomCode(), url.searchParams));
     return;
   }
 
@@ -157,11 +157,20 @@ async function renderServiceDashboard(): Promise<string> {
 </html>`;
 }
 
-async function renderDashboard(initialRoom: string): Promise<string> {
+type ChessTransportMode = "websocket" | "native-webrtc";
+
+async function renderDashboard(initialRoom: string, searchParams: URLSearchParams): Promise<string> {
   const safeRoom = sanitizeRoom(initialRoom);
-  const hostWhiteUrl = `${publicBaseUrl}/host/${safeRoom}?hostColor=white`;
-  const hostBlackUrl = `${publicBaseUrl}/host/${safeRoom}?hostColor=black`;
-  const joinUrl = `${publicBaseUrl}/join/${safeRoom}`;
+  const initialTransport = normalizeChessTransport(searchParams.get("transport"));
+  const initialHostParams = new URLSearchParams({
+    hostColor: "white",
+    transport: initialTransport,
+  });
+  const initialJoinParams = new URLSearchParams({
+    transport: initialTransport,
+  });
+  const hostWhiteUrl = `${publicBaseUrl}/host/${safeRoom}?${initialHostParams.toString()}`;
+  const joinUrl = `${publicBaseUrl}/join/${safeRoom}?${initialJoinParams.toString()}`;
 
   return `<!doctype html>
 <html lang="it">
@@ -220,6 +229,13 @@ async function renderDashboard(initialRoom: string): Promise<string> {
             <option value="black">Nero</option>
           </select>
         </div>
+        <div>
+          <label for="transportMode">Trasporto</label>
+          <select id="transportMode">
+            <option value="websocket"${initialTransport === "websocket" ? " selected" : ""}>WebSocket locale</option>
+            <option value="native-webrtc"${initialTransport === "native-webrtc" ? " selected" : ""}>Native WebRTC</option>
+          </select>
+        </div>
         <div class="row">
           <button id="newRoom" class="secondary">Nuova stanza</button>
           <a id="openHost" class="button" href="${hostWhiteUrl}">Apri partita host</a>
@@ -247,6 +263,7 @@ async function renderDashboard(initialRoom: string): Promise<string> {
     const base = ${JSON.stringify(publicBaseUrl)};
     const roomInput = document.getElementById('room');
     const hostColor = document.getElementById('hostColor');
+    const transportMode = document.getElementById('transportMode');
     const openHost = document.getElementById('openHost');
     const joinLink = document.getElementById('joinLink');
     const copyButton = document.getElementById('copyJoin');
@@ -258,6 +275,9 @@ async function renderDashboard(initialRoom: string): Promise<string> {
     }
     function makeRoom() {
       return 'CHESS-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+    }
+    function cleanTransport(value) {
+      return value === 'native-webrtc' ? 'native-webrtc' : 'websocket';
     }
     async function copyText(text) {
       if (navigator.clipboard && window.isSecureContext) {
@@ -301,12 +321,16 @@ async function renderDashboard(initialRoom: string): Promise<string> {
     function updateLinks() {
       const room = cleanRoom(roomInput.value);
       const color = hostColor.value === 'black' ? 'black' : 'white';
-      const hostUrl = base + '/host/' + room + '?hostColor=' + color;
-      const guestUrl = base + '/join/' + room;
+      const transport = cleanTransport(transportMode.value);
+      const hostParams = new URLSearchParams({ hostColor: color, transport });
+      const guestParams = new URLSearchParams({ transport });
+      const hostUrl = base + '/host/' + room + '?' + hostParams.toString();
+      const guestUrl = base + '/join/' + room + '?' + guestParams.toString();
       openHost.href = hostUrl;
       joinLink.textContent = guestUrl;
       qr.src = '/qr?data=' + encodeURIComponent(guestUrl);
-      history.replaceState(null, '', '/?room=' + encodeURIComponent(room));
+      const dashboardParams = new URLSearchParams({ room, transport });
+      history.replaceState(null, '', '/?' + dashboardParams.toString());
     }
     document.getElementById('newRoom').addEventListener('click', () => { roomInput.value = makeRoom(); updateLinks(); });
     document.getElementById('copyJoin').addEventListener('click', async () => {
@@ -323,6 +347,7 @@ async function renderDashboard(initialRoom: string): Promise<string> {
     });
     roomInput.addEventListener('input', updateLinks);
     hostColor.addEventListener('change', updateLinks);
+    transportMode.addEventListener('change', updateLinks);
     updateLinks();
   </script>
 </body>
@@ -332,11 +357,12 @@ async function renderDashboard(initialRoom: string): Promise<string> {
 function renderGameShell(role: "host" | "guest", room: string, searchParams: URLSearchParams): string {
   const safeRoom = sanitizeRoom(room);
   const hostColor = normalizeColor(searchParams.get("hostColor")) ?? "white";
+  const transport = normalizeChessTransport(searchParams.get("transport"));
   const hostPeer = `chess-host-${safeRoom}`;
   const guestPeer = `chess-guest-${safeRoom}`;
   const peer = role === "host" ? hostPeer : guestPeer;
   const gameParams = new URLSearchParams({
-    transport: "websocket",
+    transport,
     role,
     room: safeRoom,
     peer,
@@ -428,6 +454,10 @@ function normalizeColor(value: string | null): "white" | "black" | null {
   if (value === "white" || value === "bianco") return "white";
   if (value === "black" || value === "nero") return "black";
   return null;
+}
+
+function normalizeChessTransport(value: string | null): ChessTransportMode {
+  return value === "native-webrtc" ? "native-webrtc" : "websocket";
 }
 
 async function loadGameCatalog(): Promise<GameManifest[]> {

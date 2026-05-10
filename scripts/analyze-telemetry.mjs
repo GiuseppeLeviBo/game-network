@@ -7,7 +7,7 @@ const warmupMs = Number(warmupArg?.split("=")[1] ?? 60000);
 const files = args.filter((arg) => !arg.startsWith("--"));
 
 if (files.length === 0) {
-  console.error("Usage: npm run analyze:telemetry -- [--warmup-ms=60000] host.csv guest.csv");
+  console.error("Usage: npm run analyze:telemetry -- [--warmup-ms=60000] host.csv [guest.csv]");
   process.exit(1);
 }
 
@@ -21,6 +21,10 @@ for (const file of files) {
 
 for (const dataset of datasets) {
   printDatasetSummary(dataset, warmupMs);
+  for (const sourceDataset of sourceDatasets(dataset, warmupMs)) {
+    printDatasetSummary(sourceDataset, warmupMs);
+  }
+  printCombinedCollectorAnalysis(dataset, warmupMs);
 }
 
 if (datasets.length >= 2) {
@@ -28,7 +32,7 @@ if (datasets.length >= 2) {
 }
 
 function printDatasetSummary(dataset, warmupMs) {
-  const role = dataset.rows.find((row) => row.role)?.role ?? "unknown";
+  const role = dataset.rows.find((row) => row.role)?.role ?? dataset.rows.find((row) => row.remoteRole)?.remoteRole ?? "unknown";
   console.log(`\n## ${dataset.file} (${role})`);
   console.log(`Warm-up discarded: ${warmupMs} ms`);
   console.log(`Samples: ${dataset.samples.length}`);
@@ -59,6 +63,66 @@ function printDatasetSummary(dataset, warmupMs) {
       `probeSlack events: n=${summary.n} negative=${negative} min=${fmt(summary.min)} p50=${fmt(summary.p50)} p95=${fmt(summary.p95)} max=${fmt(summary.max)}`,
     );
   }
+
+  const batchOneWay = numericValues(dataset.rows, "batchOneWayDelayMs");
+  if (batchOneWay.length > 0) {
+    const summary = summarize(batchOneWay);
+    console.log(
+      `telemetryBatchOneWayMs: n=${summary.n} min=${fmt(summary.min)} p50=${fmt(summary.p50)} p95=${fmt(summary.p95)} max=${fmt(summary.max)}`,
+    );
+  }
+}
+
+function sourceDatasets(dataset, warmupMs) {
+  const sources = [...new Set(dataset.rows.map((row) => row.source).filter(Boolean))];
+  if (sources.length <= 1) return [];
+  return sources.map((source) => {
+    const rows = dataset.rows.filter((row) => row.source === source);
+    return {
+      file: `${dataset.file} [source=${source}]`,
+      rows,
+      samples: rows.filter((row) => row.type === "sample" && number(row.sinceResetMs) >= warmupMs),
+      probes: rows.filter((row) => row.type === "probe" && number(row.sinceResetMs) >= warmupMs),
+    };
+  });
+}
+
+function printCombinedCollectorAnalysis(dataset, warmupMs) {
+  const localSamples = dataset.rows.filter(
+    (row) => row.source === "local" && row.type === "sample" && number(row.sinceResetMs) >= warmupMs,
+  );
+  const remoteSamples = dataset.rows.filter(
+    (row) => row.source === "remote" && row.type === "sample" && number(row.sinceResetMs) >= warmupMs,
+  );
+  const localProbes = dataset.rows.filter(
+    (row) => row.source === "local" && row.type === "probe" && number(row.sinceResetMs) >= warmupMs,
+  );
+  const remoteProbes = dataset.rows.filter(
+    (row) => row.source === "remote" && row.type === "probe" && number(row.sinceResetMs) >= warmupMs,
+  );
+  const remoteRows = [...remoteSamples, ...remoteProbes];
+  if (localSamples.length === 0 || remoteRows.length === 0) return;
+
+  console.log(`\n## Combined collector analysis: ${dataset.file}`);
+  console.log(`Warm-up discarded: ${warmupMs} ms`);
+  console.log("Uses one collector CSV. Does not assume comparable OS wall clocks across machines.");
+  console.log(`Local samples/probes: ${localSamples.length} / ${localProbes.length}`);
+  console.log(`Remote samples/probes: ${remoteSamples.length} / ${remoteProbes.length}`);
+
+  const batches = uniqueRemoteBatches(remoteRows);
+  console.log(`Remote telemetry batches: ${batches.length}`);
+  printMetricSummary("batchOneWayDelayMs", numericValues(batches, "batchOneWayDelayMs"));
+  printCollectorLagSummary(batches);
+  printRemoteSampleAgeSummary(remoteRows);
+
+  const localRemoteTimelinePairs = pairByMetric(localSamples, remoteSamples, "timelineMs", 150);
+  const timelineDistance = localRemoteTimelinePairs.map(([local, remote]) =>
+    Math.abs(number(local.timelineMs) - number(remote.timelineMs)),
+  );
+  printMetricSummary("nearestTimelineSampleDistanceMs", timelineDistance);
+  console.log(
+    "nearestTimelineSampleDistanceMs is sampling alignment, not clock error; it should be read with the 250 ms sample cadence in mind.",
+  );
 }
 
 function printTimelineComparison(left, right, warmupMs) {
@@ -92,6 +156,56 @@ function printTimelineComparison(left, right, warmupMs) {
   console.log(`absDelta > 10 ms: ${absolute.filter((value) => value > 10).length}`);
 }
 
+function printMetricSummary(label, values) {
+  const finite = values.filter(Number.isFinite);
+  if (finite.length === 0) return;
+  const summary = summarize(finite);
+  console.log(
+    `${label}: n=${summary.n} min=${fmt(summary.min)} p50=${fmt(summary.p50)} p95=${fmt(summary.p95)} p99=${fmt(summary.p99)} max=${fmt(summary.max)} mean=${fmt(summary.mean)}`,
+  );
+}
+
+function printCollectorLagSummary(batches) {
+  const lagRows = batches
+    .map((row) => {
+      const collectorTimelineMs = number(row.collectorTimelineMs);
+      const batchCreatedTimelineMs = number(row.batchCreatedTimelineMs);
+      const batchOneWayDelayMs = number(row.batchOneWayDelayMs);
+      if (![collectorTimelineMs, batchCreatedTimelineMs].every(Number.isFinite)) return null;
+      const lagMs = collectorTimelineMs - batchCreatedTimelineMs;
+      return {
+        lagMs,
+        residualMs: Number.isFinite(batchOneWayDelayMs) ? lagMs - batchOneWayDelayMs : Number.NaN,
+      };
+    })
+    .filter(Boolean);
+  if (lagRows.length === 0) return;
+
+  const residuals = lagRows.map((row) => Math.abs(row.residualMs)).filter(Number.isFinite);
+  if (residuals.length > 0 && summarize(residuals).p50 > 1000) {
+    console.log(
+      "batchCollectorLagMs: skipped because batchCreatedTimelineMs and collectorTimelineMs are not comparable in this file.",
+    );
+    console.log("Use batchOneWayDelayMs for this capture; future exports include a stricter batch timeline source.");
+    return;
+  }
+
+  printMetricSummary("batchCollectorLagMs", lagRows.map((row) => row.lagMs));
+  printMetricSummary("batchCollectorLagResidualMs", lagRows.map((row) => row.residualMs));
+}
+
+function printRemoteSampleAgeSummary(remoteRows) {
+  const ages = remoteSampleAgeValues(remoteRows);
+  if (ages.length === 0) return;
+  if (summarize(ages.map(Math.abs)).p50 > 10000) {
+    console.log(
+      "remoteSampleAgeAtCollectorMs: skipped because remote row timelineMs and collectorTimelineMs are not comparable in this file.",
+    );
+    return;
+  }
+  printMetricSummary("remoteSampleAgeAtCollectorMs", ages);
+}
+
 function pairSamples(leftSamples, rightSamples, maxDistanceMs) {
   const right = [...rightSamples].sort((a, b) => number(a.wallMs) - number(b.wallMs));
   const pairs = [];
@@ -107,6 +221,67 @@ function pairSamples(leftSamples, rightSamples, maxDistanceMs) {
     }
   }
   return pairs;
+}
+
+function pairByMetric(leftRows, rightRows, key, maxDistance) {
+  const right = [...rightRows]
+    .filter((row) => Number.isFinite(number(row[key])))
+    .sort((a, b) => number(a[key]) - number(b[key]));
+  const pairs = [];
+  let cursor = 0;
+  for (const left of leftRows) {
+    const value = number(left[key]);
+    if (!Number.isFinite(value) || right.length === 0) continue;
+    while (
+      cursor + 1 < right.length &&
+      Math.abs(number(right[cursor + 1][key]) - value) <= Math.abs(number(right[cursor][key]) - value)
+    ) {
+      cursor += 1;
+    }
+    const candidate = right[cursor];
+    if (candidate && Math.abs(number(candidate[key]) - value) <= maxDistance) {
+      pairs.push([left, candidate]);
+    }
+  }
+  return pairs;
+}
+
+function uniqueRemoteBatches(remoteRows) {
+  const batchesByKey = new Map();
+  for (const row of remoteRows) {
+    const key = [
+      row.collectorPeerId,
+      row.remotePeerId,
+      row.collectorWallMs,
+      row.batchCreatedWallMs,
+      row.batchReceivedAt,
+    ].join("|");
+    if (batchesByKey.has(key)) continue;
+    batchesByKey.set(key, row);
+  }
+  return [...batchesByKey.values()];
+}
+
+function collectorLagValues(rows) {
+  return rows
+    .map((row) => {
+      const collectorTimelineMs = number(row.collectorTimelineMs);
+      const batchCreatedTimelineMs = number(row.batchCreatedTimelineMs);
+      if (![collectorTimelineMs, batchCreatedTimelineMs].every(Number.isFinite)) return Number.NaN;
+      return collectorTimelineMs - batchCreatedTimelineMs;
+    })
+    .filter(Number.isFinite);
+}
+
+function remoteSampleAgeValues(rows) {
+  return rows
+    .map((row) => {
+      const collectorTimelineMs = number(row.collectorTimelineMs);
+      const timelineMs = number(row.timelineMs);
+      if (![collectorTimelineMs, timelineMs].every(Number.isFinite)) return Number.NaN;
+      return collectorTimelineMs - timelineMs;
+    })
+    .filter(Number.isFinite);
 }
 
 function numericValues(rows, key) {

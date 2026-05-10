@@ -492,8 +492,10 @@
             lastSampleAt: 0,
             maxSamples: 20000,
             maxProbes: 20000,
+            maxRemoteRows: 40000,
             samples: [],
             probes: [],
+            remoteRows: [],
         };
 
         const unicodePieces = {
@@ -899,6 +901,7 @@
             networkTelemetry.lastSampleAt = now;
             const labels = currentNetworkLabels();
             pushLimited(networkTelemetry.samples, {
+                source: 'local',
                 type: 'sample',
                 wallMs: now,
                 wallIso: new Date(now).toISOString(),
@@ -924,6 +927,7 @@
             const now = Date.now();
             const labels = currentNetworkLabels();
             pushLimited(networkTelemetry.probes, {
+                source: 'local',
                 type: 'probe',
                 wallMs: now,
                 wallIso: new Date(now).toISOString(),
@@ -944,11 +948,72 @@
             }, networkTelemetry.maxProbes);
         }
 
+        function createNetworkTelemetryCursor() {
+            return {
+                samples: networkTelemetry.samples.length,
+                probes: networkTelemetry.probes.length,
+            };
+        }
+
+        function createNetworkTelemetryBatch(cursor, timelineNow = readTimelineNow) {
+            const sampleStart = Math.min(cursor.samples, networkTelemetry.samples.length);
+            const probeStart = Math.min(cursor.probes, networkTelemetry.probes.length);
+            const samples = networkTelemetry.samples.slice(sampleStart).map((row) => ({ ...row }));
+            const probes = networkTelemetry.probes.slice(probeStart).map((row) => ({ ...row }));
+            cursor.samples = networkTelemetry.samples.length;
+            cursor.probes = networkTelemetry.probes.length;
+            const timelineMs = typeof timelineNow === 'function' ? timelineNow() : null;
+            return {
+                version: 1,
+                createdAtWallMs: Date.now(),
+                createdAtWallIso: new Date().toISOString(),
+                createdAtTimelineMs: finiteOrNull(timelineMs),
+                labels: currentNetworkLabels(),
+                samples,
+                probes,
+            };
+        }
+
+        function recordRemoteTelemetryBatch(batch, received = {}) {
+            if (!batch || batch.version !== 1) return;
+            const rows = [
+                ...(Array.isArray(batch.samples) ? batch.samples : []),
+                ...(Array.isArray(batch.probes) ? batch.probes : []),
+            ];
+            if (rows.length === 0) return;
+
+            const now = Date.now();
+            const collector = currentNetworkLabels();
+            const collectorTimelineMs = finiteOrNull(readTimelineNow());
+            const remoteLabels = batch.labels || {};
+            for (const row of rows) {
+                if (!row || typeof row !== 'object') continue;
+                pushLimited(networkTelemetry.remoteRows, {
+                    ...row,
+                    source: 'remote',
+                    collectorRole: collector.role,
+                    collectorPeerId: collector.peerId,
+                    collectorWallMs: now,
+                    collectorWallIso: new Date(now).toISOString(),
+                    collectorTimelineMs,
+                    remoteRole: typeof remoteLabels.role === 'string' ? remoteLabels.role : '',
+                    remotePeerId: typeof remoteLabels.peerId === 'string' ? remoteLabels.peerId : '',
+                    remoteTransport: typeof remoteLabels.transport === 'string' ? remoteLabels.transport : '',
+                    remoteRoom: typeof remoteLabels.room === 'string' ? remoteLabels.room : '',
+                    batchCreatedWallMs: finiteOrNull(batch.createdAtWallMs),
+                    batchCreatedTimelineMs: finiteOrNull(batch.createdAtTimelineMs),
+                    batchReceivedAt: finiteOrNull(received.receivedAt),
+                    batchOneWayDelayMs: finiteOrNull(received.oneWayDelayMs),
+                }, networkTelemetry.maxRemoteRows);
+            }
+        }
+
         function resetNetworkTelemetry() {
             networkTelemetry.startedAt = Date.now();
             networkTelemetry.lastSampleAt = 0;
             networkTelemetry.samples.length = 0;
             networkTelemetry.probes.length = 0;
+            networkTelemetry.remoteRows.length = 0;
             recordNetworkTelemetrySample(true);
         }
 
@@ -961,6 +1026,7 @@
                 labels: currentNetworkLabels(),
                 samples: [...networkTelemetry.samples],
                 probes: [...networkTelemetry.probes],
+                remoteRows: [...networkTelemetry.remoteRows],
             };
         }
 
@@ -972,6 +1038,9 @@
 
         function networkTelemetryCsv() {
             const columns = [
+                'source', 'collectorRole', 'collectorPeerId', 'collectorWallMs', 'collectorWallIso',
+                'collectorTimelineMs', 'remoteRole', 'remotePeerId', 'remoteTransport', 'remoteRoom',
+                'batchCreatedWallMs', 'batchCreatedTimelineMs', 'batchReceivedAt', 'batchOneWayDelayMs',
                 'type', 'wallMs', 'wallIso', 'sinceResetMs', 'role', 'room', 'transport', 'peerId',
                 'timelineMs', 'rttMs', 'bestRttMs', 'stabilityMs', 'oneWayDelayMs', 'oneWayJitterMs',
                 'oneWaySamples', 'adaptiveLookaheadMs', 'probeSlackMs', 'probeSamples',
@@ -980,6 +1049,7 @@
             const rows = [
                 ...networkTelemetry.samples,
                 ...networkTelemetry.probes,
+                ...networkTelemetry.remoteRows,
             ].sort((a, b) => (a.wallMs ?? 0) - (b.wallMs ?? 0));
             return [
                 columns.join(','),
@@ -1841,7 +1911,8 @@
          *
          * Networked launch:
          *
-         * Before using transport=websocket, start Game Network first.
+         * Before using transport=websocket or transport=native-webrtc, start
+         * Game Network first.
          * Generic service, non-privileged single-port mode:
          *   npm run service
          *
@@ -1876,7 +1947,7 @@
             const role = params.get('role') || 'local';
             // Without these URL parameters the chess app remains completely
             // standalone and the Game Network code below does not run.
-            if (transportMode !== 'websocket' || !['host', 'guest'].includes(role)) return;
+            if (!['websocket', 'native-webrtc'].includes(transportMode) || !['host', 'guest'].includes(role)) return;
 
             const diagnostics = window.__CHESS_NETWORK_DIAGNOSTICS__;
             const chessAdapter = window.__CHESS_GAME_ADAPTER__;
@@ -1892,7 +1963,7 @@
             chessAdapter?.setNetworkRole?.(role, requestedLocalColor, { autoRotate });
             const signalingUrl = window.__CHESS_RESOLVE_SIGNALING_URL__?.(
                 params.get('signaling') || params.get('signalingUrl'),
-                'websocket',
+                transportMode,
                 params.get('service') || params.get('serviceUrl'),
             ) || `ws://${window.location.host || '127.0.0.1:9201'}/ws`;
             const moduleBase = new URL('../dist/src/', window.location.href);
@@ -1903,19 +1974,28 @@
                 // Runtime imports keep the single-file chess app usable without
                 // bundling: the network library is loaded only in network mode.
                 const [
-                    { WebSocketTransport },
+                    transportModule,
                     { HostRoom, GuestRoom },
                     { ClockSyncHost, ClockSyncClient, OneWayDelayTracker },
                 ] = await Promise.all([
-                    import(new URL('webSocketTransport.js', moduleBase)),
+                    import(new URL(transportMode === 'native-webrtc' ? 'nativeWebRtcTransport.js' : 'webSocketTransport.js', moduleBase)),
                     import(new URL('room.js', moduleBase)),
                     import(new URL('clockSync.js', moduleBase)),
                 ]);
 
-                const transport = await WebSocketTransport.create({
-                    peerId,
-                    url: signalingUrl,
-                });
+                const transport = transportMode === 'native-webrtc'
+                    ? await transportModule.NativeWebRtcTransport.create({
+                        peerId,
+                        signalingUrl,
+                    })
+                    : await transportModule.WebSocketTransport.create({
+                        peerId,
+                        url: signalingUrl,
+                    });
+                if (transportMode === 'native-webrtc' && role === 'guest') {
+                    diagnostics.update({ status: 'connecting', connectedPeerId: hostPeerId });
+                    await transport.connect(hostPeerId);
+                }
                 const markDisconnected = () => {
                     diagnostics.update({ status: 'disconnected' });
                 };
@@ -1927,6 +2007,7 @@
                 let syncPanelTimer = null;
                 let guestJoinTimer = null;
                 let diagnosticProbeTimer = null;
+                let telemetryRelayTimer = null;
                 let diagnosticProbeSeq = 0;
                 let lastClockStatsSentAt = 0;
                 const oneWayTracker = new OneWayDelayTracker({ maxSamples: 120 });
@@ -1979,6 +2060,21 @@
                             sendProbe();
                             tick();
                         }, delayMs);
+                    };
+                    tick();
+                };
+
+                const startTelemetryRelay = (sendBatch, timelineNow = readTimelineNow) => {
+                    if (telemetryRelayTimer) clearTimeout(telemetryRelayTimer);
+                    const cursor = createNetworkTelemetryCursor();
+                    const tick = () => {
+                        telemetryRelayTimer = setTimeout(() => {
+                            const batch = createNetworkTelemetryBatch(cursor, timelineNow);
+                            if (batch.samples.length > 0 || batch.probes.length > 0) {
+                                sendBatch(batch);
+                            }
+                            tick();
+                        }, 1000);
                     };
                     tick();
                 };
@@ -2054,6 +2150,10 @@
                         diagnostics.update({ status: 'connected', connectedPeerId: player.peerId });
                         setTimeout(sendSnapshot, 100);
                         startDiagnosticProbes(() => hostRoom.sendEvent(createDiagnosticProbe('host-to-guest', () => performance.now())));
+                        startTelemetryRelay(
+                            (batch) => hostRoom.sendEvent({ kind: 'telemetry_batch', batch }),
+                            () => performance.now(),
+                        );
                     });
                     hostRoom.onInput((payload) => {
                         const input = payload.input;
@@ -2068,6 +2168,10 @@
                                 drift: input.estimate?.drift,
                                 lastSyncAt: Date.now(),
                             });
+                            return;
+                        }
+                        if (input?.kind === 'telemetry_batch') {
+                            recordRemoteTelemetryBatch(input.batch, payload);
                             return;
                         }
                         updateOneWayStats(payload, input?.kind ?? 'input');
@@ -2121,6 +2225,10 @@
                     if (guestJoinTimer) clearInterval(guestJoinTimer);
                     chessAdapter?.setNetworkRole?.(role, payload.localPlayer.id, { autoRotate });
                     startClockClient(hostPeerId);
+                    startTelemetryRelay(
+                        (batch) => guestRoom.sendInput({ kind: 'telemetry_batch', batch }),
+                        () => diagnosticClockClient?.now() ?? performance.now(),
+                    );
                 });
                 guestRoom.onRejected((payload) => {
                     console.warn('Chess network join rejected:', payload);
@@ -2134,6 +2242,10 @@
                 });
                 guestRoom.onEvent((payload) => {
                     const event = payload.event;
+                    if (event?.kind === 'telemetry_batch') {
+                        recordRemoteTelemetryBatch(event.batch, payload);
+                        return;
+                    }
                     updateOneWayStats(payload, event?.kind ?? 'event');
                     if (event?.kind === 'diagnostic_probe') {
                         updateProbeTimeline(payload, event);

@@ -66,6 +66,58 @@ test("single-file chess mirrors host snapshots and guest moves over WebSocket", 
   }
 });
 
+test("single-file chess connects through native WebRTC transport", async ({ browser }) => {
+  const hub = await startHub();
+  const hostServer = await startStaticServer(gameNetworkRoot);
+  const guestServer = await startStaticServer(gameNetworkRoot);
+  const context = await browser.newContext();
+  const host = await context.newPage();
+  const guest = await context.newPage();
+  const pageLogs: string[] = [];
+  for (const [label, page] of [["host", host], ["guest", guest]] as const) {
+    page.on("console", (message) => pageLogs.push(`${label} console ${message.type()}: ${message.text()}`));
+    page.on("pageerror", (error) => pageLogs.push(`${label} pageerror: ${error.message}`));
+  }
+  await installChessPageStubs(host);
+  await installChessPageStubs(guest);
+
+  const room = `CHESS-RTC-${Date.now()}`;
+  const hostUrl = `${hostServer.url}/single-file-chess-game/?transport=native-webrtc&role=host&room=${room}&peer=chess-host-${room}&signaling=${hub.url}`;
+  const guestUrl = `${guestServer.url}/single-file-chess-game/?transport=native-webrtc&role=guest&room=${room}&peer=chess-guest-${room}&host=chess-host-${room}&signaling=${hub.url}`;
+
+  let failed = false;
+  try {
+    await host.goto(hostUrl);
+    await guest.goto(guestUrl);
+
+    await expectConnected(host);
+    await expectConnected(guest);
+    await expect(host.locator("#networkTransport")).toHaveText("native-webrtc");
+    await expect(guest.locator("#networkTransport")).toHaveText("native-webrtc");
+
+    await host.evaluate(() => {
+      window.__CHESS_GAME_ADAPTER__.applyMove({ from: "E2", to: "E4" });
+      window.__CHESS_GAME_NETWORK__.sendSnapshot();
+    });
+    await expectFenToContain(guest, '"E4":"P"');
+
+    await guest.evaluate(() => {
+      window.__CHESS_GAME_NETWORK__.sendLocalMove({ from: "E7", to: "E5" });
+    });
+    await expectFenToContain(host, '"E5":"p"');
+    await expectFenToContain(guest, '"E5":"p"');
+  } catch (error) {
+    failed = true;
+    throw error;
+  } finally {
+    if (failed && pageLogs.length > 0) console.log(pageLogs.join("\n"));
+    await context.close();
+    await closeServer(hostServer.server);
+    await closeServer(guestServer.server);
+    await closeServer(hub.server);
+  }
+});
+
 test("diagnostic probes exercise adaptive timing without changing the chess game", async ({ browser }) => {
   const hub = await startHub();
   const hostServer = await startStaticServer(gameNetworkRoot);
@@ -104,6 +156,11 @@ test("diagnostic probes exercise adaptive timing without changing the chess game
       .poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getTelemetry().probes.length))
       .toBeGreaterThan(0);
     await expect(guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getTelemetryCsv())).resolves.toContain("probeSlackMs");
+    await expect
+      .poll(() => host.evaluate(() => ((window.__CHESS_NETWORK_DIAGNOSTICS__.getTelemetry() as unknown) as { remoteRows: unknown[] }).remoteRows.length), { timeout: 10_000 })
+      .toBeGreaterThan(0);
+    await expect(host.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getTelemetryCsv())).resolves.toContain("source");
+    await expect(host.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getTelemetryCsv())).resolves.toContain("remote");
 
     await expect.poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().oneWaySamples)).not.toBe("0");
     await expect.poll(() => guest.evaluate(() => window.__CHESS_GAME_ADAPTER__.getSnapshot().fen)).toBe(guestFenBefore);
