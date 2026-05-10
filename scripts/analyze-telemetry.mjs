@@ -41,14 +41,11 @@ function printDatasetSummary(dataset, warmupMs) {
   for (const metric of [
     "rttMs",
     "bestRttMs",
-    "clockOffsetMs",
-    "clockStabilityMs",
     "stabilityMs",
     "oneWayDelayMs",
     "oneWayJitterMs",
     "adaptiveLookaheadMs",
     "probeSlackMs",
-    "probeLateMs",
   ]) {
     const values = numericValues(dataset.samples, metric);
     if (values.length === 0) continue;
@@ -67,15 +64,6 @@ function printDatasetSummary(dataset, warmupMs) {
     );
   }
 
-  const probeLate = probeLateValues(dataset.probes);
-  if (probeLate.length > 0) {
-    const late = probeLate.filter((value) => value > 0).length;
-    const summary = summarize(probeLate);
-    console.log(
-      `probeLate events: n=${summary.n} late=${late} min=${fmt(summary.min)} p50=${fmt(summary.p50)} p95=${fmt(summary.p95)} max=${fmt(summary.max)}`,
-    );
-  }
-
   const batchOneWay = numericValues(dataset.rows, "batchOneWayDelayMs");
   if (batchOneWay.length > 0) {
     const summary = summarize(batchOneWay);
@@ -83,8 +71,6 @@ function printDatasetSummary(dataset, warmupMs) {
       `telemetryBatchOneWayMs: n=${summary.n} min=${fmt(summary.min)} p50=${fmt(summary.p50)} p95=${fmt(summary.p95)} max=${fmt(summary.max)}`,
     );
   }
-
-  printVisibilitySummary(dataset.samples, dataset.probes);
 }
 
 function sourceDatasets(dataset, warmupMs) {
@@ -177,47 +163,6 @@ function printMetricSummary(label, values) {
   console.log(
     `${label}: n=${summary.n} min=${fmt(summary.min)} p50=${fmt(summary.p50)} p95=${fmt(summary.p95)} p99=${fmt(summary.p99)} max=${fmt(summary.max)} mean=${fmt(summary.mean)}`,
   );
-}
-
-function printVisibilitySummary(samples, probes) {
-  const hasVisibility = [...samples, ...probes].some(
-    (row) => row.visibilityState || row.documentHidden || row.hasFocus,
-  );
-  if (!hasVisibility) return;
-
-  const buckets = [
-    ["foreground", (row) => row.visibilityState === "visible" && row.documentHidden !== "true" && row.hasFocus !== "false"],
-    ["visible-unfocused", (row) => row.visibilityState === "visible" && row.hasFocus === "false"],
-    ["hidden", (row) => row.visibilityState === "hidden" || row.documentHidden === "true"],
-    ["unknown", (row) => !row.visibilityState && !row.documentHidden && !row.hasFocus],
-  ];
-
-  const parts = buckets
-    .map(([label, predicate]) => {
-      const sampleCount = samples.filter(predicate).length;
-      const probeCount = probes.filter(predicate).length;
-      if (sampleCount === 0 && probeCount === 0) return null;
-      return `${label}: samples=${sampleCount} probes=${probeCount}`;
-    })
-    .filter(Boolean);
-  if (parts.length === 0) return;
-  console.log(`visibility: ${parts.join("; ")}`);
-
-  for (const [label, predicate] of buckets) {
-    const bucketSamples = samples.filter(predicate);
-    const bucketProbes = probes.filter(predicate);
-    if (bucketSamples.length === 0 && bucketProbes.length === 0) continue;
-
-    const jitter = summarizeIfAny(numericValues(bucketSamples, "oneWayJitterMs"));
-    const lookahead = summarizeIfAny(numericValues(bucketSamples, "adaptiveLookaheadMs"));
-    const late = summarizeIfAny(probeLateValues(bucketProbes));
-    const lateCount = probeLateValues(bucketProbes).filter((value) => value > 0).length;
-    const fields = [];
-    if (jitter) fields.push(`jitter p50=${fmt(jitter.p50)} p95=${fmt(jitter.p95)}`);
-    if (lookahead) fields.push(`lookahead p50=${fmt(lookahead.p50)} p95=${fmt(lookahead.p95)}`);
-    if (late) fields.push(`probeLate late=${lateCount}/${late.n} p95=${fmt(late.p95)} max=${fmt(late.max)}`);
-    if (fields.length > 0) console.log(`visibility[${label}]: ${fields.join("; ")}`);
-  }
 }
 
 function printCollectorLagSummary(batches) {
@@ -341,22 +286,6 @@ function remoteSampleAgeValues(rows) {
 
 function numericValues(rows, key) {
   return rows.map((row) => number(row[key])).filter(Number.isFinite);
-}
-
-function probeLateValues(rows) {
-  return rows
-    .map((row) => {
-      const explicit = number(row.probeLateMs);
-      if (Number.isFinite(explicit)) return explicit;
-      const slack = number(row.probeSlackMs);
-      return Number.isFinite(slack) && slack < 0 ? -slack : Number.isFinite(slack) ? 0 : Number.NaN;
-    })
-    .filter(Number.isFinite);
-}
-
-function summarizeIfAny(values) {
-  const finite = values.filter(Number.isFinite);
-  return finite.length > 0 ? summarize(finite) : null;
 }
 
 function summarize(values) {

@@ -475,8 +475,6 @@
             bestRttMs: null,
             offsetMs: null,
             offsetBaselineMs: null,
-            clockBaselineKey: null,
-            stabilityMs: null,
             drift: null,
             connectedPeerId: null,
             lastSyncAt: null,
@@ -647,8 +645,6 @@
                 networkDiagnostics.bestRttMs = null;
                 networkDiagnostics.offsetMs = null;
                 networkDiagnostics.offsetBaselineMs = null;
-                networkDiagnostics.clockBaselineKey = null;
-                networkDiagnostics.stabilityMs = null;
                 networkDiagnostics.drift = null;
                 networkDiagnostics.connectedPeerId = null;
                 networkDiagnostics.lastSyncAt = null;
@@ -662,7 +658,9 @@
                 networkDiagnostics.connectedAt = null;
             }
             expireStaleNetworkStatus();
-            updateClockStabilityBaseline(overrides);
+            if (Number.isFinite(networkDiagnostics.offsetMs) && !Number.isFinite(networkDiagnostics.offsetBaselineMs)) {
+                networkDiagnostics.offsetBaselineMs = networkDiagnostics.offsetMs;
+            }
             const params = new URLSearchParams(window.location.search);
             const role = params.get('role') || 'local';
             const room = params.get('room') || params.get('roomId') || '--';
@@ -798,30 +796,9 @@
             networkDiagnostics.bestRttMs = null;
             networkDiagnostics.offsetMs = null;
             networkDiagnostics.offsetBaselineMs = null;
-            networkDiagnostics.clockBaselineKey = null;
-            networkDiagnostics.stabilityMs = null;
             networkDiagnostics.drift = null;
             networkDiagnostics.connectedPeerId = null;
             networkDiagnostics.lastSyncAt = null;
-        }
-
-        function updateClockStabilityBaseline(overrides = {}) {
-            const hasOffset = Object.prototype.hasOwnProperty.call(overrides, 'offsetMs');
-            const hasStability = Object.prototype.hasOwnProperty.call(overrides, 'stabilityMs');
-            if (hasStability && Number.isFinite(overrides.stabilityMs)) {
-                networkDiagnostics.stabilityMs = overrides.stabilityMs;
-                return;
-            }
-            if (!hasOffset || !Number.isFinite(networkDiagnostics.offsetMs)) return;
-            const labels = currentNetworkLabels();
-            const baselineKey = typeof overrides.clockBaselineKey === 'string'
-                ? overrides.clockBaselineKey
-                : `${labels.role}:${labels.peerId}:${networkDiagnostics.connectedPeerId || ''}`;
-            if (networkDiagnostics.clockBaselineKey !== baselineKey || !Number.isFinite(networkDiagnostics.offsetBaselineMs)) {
-                networkDiagnostics.clockBaselineKey = baselineKey;
-                networkDiagnostics.offsetBaselineMs = networkDiagnostics.offsetMs;
-            }
-            networkDiagnostics.stabilityMs = networkDiagnostics.offsetMs - networkDiagnostics.offsetBaselineMs;
         }
 
         function localAddressLabel() {
@@ -845,7 +822,8 @@
         }
 
         function clockStabilityMs() {
-            return Number.isFinite(networkDiagnostics.stabilityMs) ? networkDiagnostics.stabilityMs : null;
+            if (!Number.isFinite(networkDiagnostics.offsetMs) || !Number.isFinite(networkDiagnostics.offsetBaselineMs)) return null;
+            return networkDiagnostics.offsetMs - networkDiagnostics.offsetBaselineMs;
         }
 
         function formatTime(value) {
@@ -935,20 +913,13 @@
                 timelineMs: finiteOrNull(readTimelineNow()),
                 rttMs: finiteOrNull(networkDiagnostics.rttMs),
                 bestRttMs: finiteOrNull(networkDiagnostics.bestRttMs),
-                clockOffsetMs: finiteOrNull(networkDiagnostics.offsetMs),
-                clockStabilityMs: finiteOrNull(clockStabilityMs()),
-                clockBaselineKey: typeof networkDiagnostics.clockBaselineKey === 'string' ? networkDiagnostics.clockBaselineKey : '',
                 stabilityMs: finiteOrNull(clockStabilityMs()),
                 oneWayDelayMs: finiteOrNull(networkDiagnostics.oneWayDelayMs),
                 oneWayJitterMs: finiteOrNull(networkDiagnostics.oneWayJitterMs),
                 oneWaySamples: networkDiagnostics.oneWaySamples ?? 0,
                 adaptiveLookaheadMs: finiteOrNull(networkDiagnostics.adaptiveLookaheadMs),
                 probeSlackMs: finiteOrNull(networkDiagnostics.probeSlackMs),
-                probeLateMs: probeLateMs(networkDiagnostics.probeSlackMs),
                 probeSamples: networkDiagnostics.probeSamples ?? 0,
-                visibilityState: document.visibilityState || '',
-                documentHidden: document.hidden === true,
-                hasFocus: typeof document.hasFocus === 'function' ? document.hasFocus() : null,
             }, networkTelemetry.maxSamples);
         }
 
@@ -974,15 +945,7 @@
                 receivedAt: finiteOrNull(payload?.receivedAt),
                 oneWayDelayMs: finiteOrNull(payload?.oneWayDelayMs),
                 probeSlackMs: finiteOrNull(probeSlackMs),
-                probeLateMs: probeLateMs(probeSlackMs),
-                visibilityState: document.visibilityState || '',
-                documentHidden: document.hidden === true,
-                hasFocus: typeof document.hasFocus === 'function' ? document.hasFocus() : null,
             }, networkTelemetry.maxProbes);
-        }
-
-        function probeLateMs(probeSlackMs) {
-            return Number.isFinite(probeSlackMs) && probeSlackMs < 0 ? -probeSlackMs : 0;
         }
 
         function createNetworkTelemetryCursor() {
@@ -1051,11 +1014,6 @@
             networkTelemetry.samples.length = 0;
             networkTelemetry.probes.length = 0;
             networkTelemetry.remoteRows.length = 0;
-            networkDiagnostics.offsetBaselineMs = Number.isFinite(networkDiagnostics.offsetMs) ? networkDiagnostics.offsetMs : null;
-            networkDiagnostics.clockBaselineKey = networkDiagnostics.connectedPeerId
-                ? `${currentNetworkLabels().role}:${currentNetworkLabels().peerId}:${networkDiagnostics.connectedPeerId}`
-                : networkDiagnostics.clockBaselineKey;
-            networkDiagnostics.stabilityMs = Number.isFinite(networkDiagnostics.offsetBaselineMs) ? 0 : null;
             recordNetworkTelemetrySample(true);
         }
 
@@ -1085,9 +1043,7 @@
                 'batchCreatedWallMs', 'batchCreatedTimelineMs', 'batchReceivedAt', 'batchOneWayDelayMs',
                 'type', 'wallMs', 'wallIso', 'sinceResetMs', 'role', 'room', 'transport', 'peerId',
                 'timelineMs', 'rttMs', 'bestRttMs', 'stabilityMs', 'oneWayDelayMs', 'oneWayJitterMs',
-                'clockOffsetMs', 'clockStabilityMs', 'clockBaselineKey',
-                'oneWaySamples', 'adaptiveLookaheadMs', 'probeSlackMs', 'probeLateMs', 'probeSamples',
-                'visibilityState', 'documentHidden', 'hasFocus',
+                'oneWaySamples', 'adaptiveLookaheadMs', 'probeSlackMs', 'probeSamples',
                 'probeSeq', 'probeDirection', 'probeScheduledAt', 'probeLookaheadMs', 'sentAt', 'receivedAt',
             ];
             const rows = [
@@ -2142,7 +2098,6 @@
                         rttMs: estimate.rttMs,
                         bestRttMs: estimate.bestRttMs,
                         offsetMs: estimate.offsetMs,
-                        clockBaselineKey: `sync:${remotePeerId}`,
                         drift: estimate.drift,
                         lastSyncAt: Date.now(),
                     });
@@ -2156,7 +2111,6 @@
                                     rttMs: estimate.rttMs,
                                     bestRttMs: estimate.bestRttMs,
                                     offsetMs: estimate.offsetMs,
-                                    stabilityMs: clockStabilityMs(),
                                     drift: estimate.drift,
                                 },
                             });
@@ -2221,8 +2175,6 @@
                                 rttMs: input.estimate?.rttMs,
                                 bestRttMs: input.estimate?.bestRttMs,
                                 offsetMs: input.estimate?.offsetMs,
-                                stabilityMs: input.estimate?.stabilityMs,
-                                clockBaselineKey: `remote:${inputPlayer?.peerId ?? payload.playerId}`,
                                 drift: input.estimate?.drift,
                                 lastSyncAt: Date.now(),
                             });
