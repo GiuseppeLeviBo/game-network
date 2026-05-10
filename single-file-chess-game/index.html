@@ -499,6 +499,8 @@
             probes: [],
             remoteRows: [],
         };
+        const maxTelemetryBatchSamples = 12;
+        const maxTelemetryBatchProbes = 8;
 
         const unicodePieces = {
             'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙',
@@ -803,6 +805,11 @@
             networkDiagnostics.drift = null;
             networkDiagnostics.connectedPeerId = null;
             networkDiagnostics.lastSyncAt = null;
+            networkDiagnostics.oneWayDelayMs = null;
+            networkDiagnostics.oneWayJitterMs = null;
+            networkDiagnostics.adaptiveLookaheadMs = null;
+            networkDiagnostics.probeSlackMs = null;
+            networkDiagnostics.timelineNow = null;
         }
 
         function updateClockStabilityBaseline(overrides = {}) {
@@ -995,10 +1002,12 @@
         function createNetworkTelemetryBatch(cursor, timelineNow = readTimelineNow) {
             const sampleStart = Math.min(cursor.samples, networkTelemetry.samples.length);
             const probeStart = Math.min(cursor.probes, networkTelemetry.probes.length);
-            const samples = networkTelemetry.samples.slice(sampleStart).map((row) => ({ ...row }));
-            const probes = networkTelemetry.probes.slice(probeStart).map((row) => ({ ...row }));
-            cursor.samples = networkTelemetry.samples.length;
-            cursor.probes = networkTelemetry.probes.length;
+            const sampleEnd = Math.min(networkTelemetry.samples.length, sampleStart + maxTelemetryBatchSamples);
+            const probeEnd = Math.min(networkTelemetry.probes.length, probeStart + maxTelemetryBatchProbes);
+            const samples = networkTelemetry.samples.slice(sampleStart, sampleEnd).map((row) => ({ ...row }));
+            const probes = networkTelemetry.probes.slice(probeStart, probeEnd).map((row) => ({ ...row }));
+            cursor.samples = sampleEnd;
+            cursor.probes = probeEnd;
             const timelineMs = typeof timelineNow === 'function' ? timelineNow() : null;
             return {
                 version: 1,
