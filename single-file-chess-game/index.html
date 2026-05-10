@@ -1976,7 +1976,7 @@
                 const [
                     transportModule,
                     { HostRoom, GuestRoom },
-                    { ClockSyncHost, ClockSyncClient, OneWayDelayTracker },
+                    { AdaptiveLookaheadController, ClockSyncHost, ClockSyncClient, OneWayDelayTracker },
                 ] = await Promise.all([
                     import(new URL(transportMode === 'native-webrtc' ? 'nativeWebRtcTransport.js' : 'webSocketTransport.js', moduleBase)),
                     import(new URL('room.js', moduleBase)),
@@ -2011,15 +2011,25 @@
                 let diagnosticProbeSeq = 0;
                 let lastClockStatsSentAt = 0;
                 const oneWayTracker = new OneWayDelayTracker({ maxSamples: 120 });
+                const lookaheadController = new AdaptiveLookaheadController({
+                    minMs: 25,
+                    maxMs: 120,
+                    safetyMarginMs: 10,
+                    jitterMultiplier: 3,
+                    riseLimitMs: 20,
+                    fallLimitMs: 3,
+                    fallHoldSamples: 5,
+                    initialMs: 50,
+                });
 
                 const updateOneWayStats = (payload, label) => {
                     if (!Number.isFinite(payload?.sentAt) || !Number.isFinite(payload?.receivedAt)) return;
                     const estimate = oneWayTracker.add(payload.sentAt, payload.receivedAt, { label });
-                    const adaptiveLookaheadMs = computeAdaptiveLookaheadMs(
-                        estimate.delayMs,
-                        estimate.jitterMs,
-                        networkDiagnostics.bestRttMs ?? networkDiagnostics.rttMs,
-                    );
+                    const adaptiveLookaheadMs = lookaheadController.update({
+                        oneWayDelayMs: estimate.delayMs,
+                        oneWayJitterMs: estimate.jitterMs,
+                        rttMs: networkDiagnostics.bestRttMs ?? networkDiagnostics.rttMs,
+                    }).lookaheadMs;
                     diagnostics.update({
                         oneWayDelayMs: estimate.delayMs,
                         oneWayJitterMs: estimate.jitterMs,

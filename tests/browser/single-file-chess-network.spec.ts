@@ -150,6 +150,19 @@ test("diagnostic probes exercise adaptive timing without changing the chess game
       .poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().timelineClock))
       .toMatch(/^\d+:\d{2}:\d{2}\.\d{3}$/);
     await expect
+      .poll(() => guest.evaluate(() => {
+        const raw = window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().lookahead ?? "";
+        const value = Number(String(raw).replace(/[^\d.-]/g, ""));
+        return Number.isFinite(value) ? value : -1;
+      }))
+      .toBeGreaterThanOrEqual(25);
+    await expect(
+      guest.evaluate(() => {
+        const raw = window.__CHESS_NETWORK_DIAGNOSTICS__.getSnapshot().lookahead ?? "";
+        return Number(String(raw).replace(/[^\d.-]/g, ""));
+      }),
+    ).resolves.toBeLessThanOrEqual(120);
+    await expect
       .poll(() => guest.evaluate(() => window.__CHESS_NETWORK_DIAGNOSTICS__.getTelemetry().samples.length))
       .toBeGreaterThan(0);
     await expect

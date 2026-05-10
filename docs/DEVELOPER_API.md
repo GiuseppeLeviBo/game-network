@@ -223,6 +223,30 @@ guestRoom.onSnapshot((payload) => {
 });
 ```
 
+For a generic scheduling margin, use `AdaptiveLookaheadController`. It is
+application-neutral: it does not know whether the app is turn-based or realtime.
+It combines assisted one-way delay, jitter, and optional RTT fallback, then
+applies hysteresis and bounded step changes so the recommended lookahead rises
+quickly during instability and falls slowly after stable samples.
+
+```ts
+const lookahead = new AdaptiveLookaheadController({
+  minMs: 25,
+  maxMs: 120,
+  safetyMarginMs: 10,
+  jitterMultiplier: 3,
+});
+
+const oneWayEstimate = oneWay.add(payload.sentAt, payload.receivedAt);
+const timing = lookahead.update({
+  oneWayDelayMs: oneWayEstimate.delayMs,
+  oneWayJitterMs: oneWayEstimate.jitterMs,
+  rttMs: clockClient.getEstimate().bestRttMs,
+});
+
+console.log("recommended lookahead", timing.lookaheadMs);
+```
+
 For details see [PROTOCOLLO DI SINCRONIZZAZIONE](../Notes/PROTOCOLLO%20DI%20SINCRONIZZAZIONE.md).
 
 ## Recommended Game Integration Pattern

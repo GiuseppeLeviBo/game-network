@@ -77,11 +77,43 @@ export interface OneWayDelayEstimate {
   updatedAt: number;
 }
 
+export interface AdaptiveLookaheadOptions {
+  minMs?: number;
+  maxMs?: number;
+  safetyMarginMs?: number;
+  jitterMultiplier?: number;
+  riseLimitMs?: number;
+  fallLimitMs?: number;
+  fallHoldSamples?: number;
+  initialMs?: number;
+}
+
+export interface AdaptiveLookaheadInput {
+  oneWayDelayMs?: number;
+  oneWayJitterMs?: number;
+  clockErrorBoundMs?: number;
+  rttMs?: number;
+}
+
+export interface AdaptiveLookaheadEstimate {
+  lookaheadMs: number;
+  targetMs: number;
+  clamped: boolean;
+  stableSamples: number;
+}
+
 const DEFAULT_BEST_SAMPLE_RATIO = 0.25;
 const DEFAULT_MAX_SAMPLES = 96;
 const DEFAULT_ONE_WAY_MAX_SAMPLES = 120;
 const DEFAULT_OFFSET_MAD_FACTOR = 3;
 const DEFAULT_OFFSET_OUTLIER_FLOOR_MS = 1;
+const DEFAULT_LOOKAHEAD_MIN_MS = 25;
+const DEFAULT_LOOKAHEAD_MAX_MS = 120;
+const DEFAULT_LOOKAHEAD_SAFETY_MARGIN_MS = 8;
+const DEFAULT_LOOKAHEAD_JITTER_MULTIPLIER = 3;
+const DEFAULT_LOOKAHEAD_RISE_LIMIT_MS = 20;
+const DEFAULT_LOOKAHEAD_FALL_LIMIT_MS = 3;
+const DEFAULT_LOOKAHEAD_FALL_HOLD_SAMPLES = 5;
 
 export function defaultMonotonicClock(): number {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -419,6 +451,74 @@ export class OneWayDelayTracker {
   }
 }
 
+export class AdaptiveLookaheadController {
+  private readonly minMs: number;
+  private readonly maxMs: number;
+  private readonly safetyMarginMs: number;
+  private readonly jitterMultiplier: number;
+  private readonly riseLimitMs: number;
+  private readonly fallLimitMs: number;
+  private readonly fallHoldSamples: number;
+  private lookaheadMs: number;
+  private stableSamples = 0;
+
+  constructor(options: AdaptiveLookaheadOptions = {}) {
+    this.minMs = Math.max(0, options.minMs ?? DEFAULT_LOOKAHEAD_MIN_MS);
+    this.maxMs = Math.max(this.minMs, options.maxMs ?? DEFAULT_LOOKAHEAD_MAX_MS);
+    this.safetyMarginMs = Math.max(0, options.safetyMarginMs ?? DEFAULT_LOOKAHEAD_SAFETY_MARGIN_MS);
+    this.jitterMultiplier = Math.max(0, options.jitterMultiplier ?? DEFAULT_LOOKAHEAD_JITTER_MULTIPLIER);
+    this.riseLimitMs = Math.max(0, options.riseLimitMs ?? DEFAULT_LOOKAHEAD_RISE_LIMIT_MS);
+    this.fallLimitMs = Math.max(0, options.fallLimitMs ?? DEFAULT_LOOKAHEAD_FALL_LIMIT_MS);
+    this.fallHoldSamples = Math.max(1, Math.floor(options.fallHoldSamples ?? DEFAULT_LOOKAHEAD_FALL_HOLD_SAMPLES));
+    this.lookaheadMs = clampNumber(options.initialMs ?? this.minMs, this.minMs, this.maxMs);
+  }
+
+  update(input: AdaptiveLookaheadInput): AdaptiveLookaheadEstimate {
+    const targetMs = this.computeTarget(input);
+    const clampedTargetMs = clampNumber(targetMs, this.minMs, this.maxMs);
+    const isClamped = clampedTargetMs !== targetMs;
+
+    if (clampedTargetMs > this.lookaheadMs) {
+      this.stableSamples = 0;
+      this.lookaheadMs = Math.min(clampedTargetMs, this.lookaheadMs + this.riseLimitMs);
+    } else if (clampedTargetMs < this.lookaheadMs) {
+      this.stableSamples += 1;
+      if (this.stableSamples >= this.fallHoldSamples) {
+        this.lookaheadMs = Math.max(clampedTargetMs, this.lookaheadMs - this.fallLimitMs);
+      }
+    } else {
+      this.stableSamples += 1;
+    }
+
+    this.lookaheadMs = clampNumber(this.lookaheadMs, this.minMs, this.maxMs);
+    return this.getEstimate(clampedTargetMs, isClamped);
+  }
+
+  getEstimate(targetMs = this.lookaheadMs, clamped = false): AdaptiveLookaheadEstimate {
+    return {
+      lookaheadMs: this.lookaheadMs,
+      targetMs,
+      clamped,
+      stableSamples: this.stableSamples,
+    };
+  }
+
+  reset(valueMs = this.minMs): AdaptiveLookaheadEstimate {
+    this.lookaheadMs = clampNumber(valueMs, this.minMs, this.maxMs);
+    this.stableSamples = 0;
+    return this.getEstimate();
+  }
+
+  private computeTarget(input: AdaptiveLookaheadInput): number {
+    const oneWayDelayMs = finiteOrZero(input.oneWayDelayMs);
+    const jitterMs = finiteOrZero(input.oneWayJitterMs);
+    const clockErrorBoundMs = finiteOrZero(input.clockErrorBoundMs);
+    const rttFallbackMs = finiteOrZero(input.rttMs) / 2;
+    const baseDelayMs = Math.max(oneWayDelayMs, rttFallbackMs);
+    return baseDelayMs + this.jitterMultiplier * jitterMs + clockErrorBoundMs + this.safetyMarginMs;
+  }
+}
+
 function estimateLinearClock(samples: readonly ClockSyncSample[]): { drift: number; intercept: number } {
   if (samples.length < 2) {
     const sample = samples[0];
@@ -461,6 +561,15 @@ function clampRatio(value: number): number {
 function normalizeOffsetMadFactor(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_OFFSET_MAD_FACTOR;
   return Math.max(0, value);
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
+function finiteOrZero(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
 function isFiniteNumber(value: unknown): value is number {

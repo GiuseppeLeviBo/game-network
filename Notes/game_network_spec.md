@@ -464,6 +464,14 @@ Diagnostic integrations may also exchange no-op application probes. A
 arrival time with `scheduledAt` to show the current safety margin. The probe must
 not modify game state, scoring, turn order, or user-visible move history.
 
+The recommended lookahead is application-neutral. The core may expose an
+adaptive estimator that uses one-way delay, jitter, RTT fallback, and optional
+clock uncertainty, but it must not encode separate policies for different game
+genres. Applications decide what to do with late events. The estimator should
+apply hysteresis and bounded step changes: increase quickly when the channel
+gets worse, decrease slowly only after stable samples, and stay within explicit
+minimum and maximum limits.
+
 Debug dashboards should expose the same shared application timeline as a
 monotonic `h:mm:ss.mmm` clock. This is not civil wall-clock time; it is the
 host-authoritative timeline seen by each peer after clock synchronization.

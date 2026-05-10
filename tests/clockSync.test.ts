@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  AdaptiveLookaheadController,
   ClockSyncClient,
   ClockSyncHost,
   FakeNetwork,
@@ -171,5 +172,44 @@ describe("clock sync", () => {
     assert.equal(estimate.bestDelayMs, 14);
     assert.equal(estimate.worstDelayMs, 18);
     assert.equal(estimate.jitterMs, 2);
+  });
+
+  it("adapts lookahead with hysteresis and bounded step changes", () => {
+    const controller = new AdaptiveLookaheadController({
+      minMs: 25,
+      maxMs: 80,
+      safetyMarginMs: 5,
+      jitterMultiplier: 2,
+      riseLimitMs: 10,
+      fallLimitMs: 2,
+      fallHoldSamples: 3,
+      initialMs: 25,
+    });
+
+    const first = controller.update({
+      oneWayDelayMs: 20,
+      oneWayJitterMs: 10,
+      clockErrorBoundMs: 5,
+    });
+    assert.equal(first.targetMs, 50);
+    assert.equal(first.lookaheadMs, 35);
+
+    const second = controller.update({
+      oneWayDelayMs: 100,
+      oneWayJitterMs: 20,
+      clockErrorBoundMs: 20,
+    });
+    assert.equal(second.targetMs, 80);
+    assert.equal(second.clamped, true);
+    assert.equal(second.lookaheadMs, 45);
+
+    for (let index = 0; index < 2; index += 1) {
+      controller.update({ oneWayDelayMs: 1, oneWayJitterMs: 0 });
+    }
+    assert.equal(controller.getEstimate().lookaheadMs, 45);
+
+    const falling = controller.update({ oneWayDelayMs: 1, oneWayJitterMs: 0 });
+    assert.equal(falling.targetMs, 25);
+    assert.equal(falling.lookaheadMs, 43);
   });
 });
