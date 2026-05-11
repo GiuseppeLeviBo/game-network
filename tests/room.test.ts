@@ -95,6 +95,77 @@ describe("host and guest rooms", () => {
     assert.deepEqual(snapshots, [{ tick: 1, x: 12 }]);
   });
 
+  it("notifies the guest when the host peer disconnects", () => {
+    const network = new FakeNetwork();
+    const hostTransport = network.createPeer("host-peer");
+    const host = new HostRoom({
+      roomId: "ROOM-1",
+      maxPlayers: 2,
+      displayName: "Host",
+      transport: hostTransport,
+    });
+    const guest = new GuestRoom({
+      roomId: "ROOM-1",
+      displayName: "ABC",
+      hostPeerId: "host-peer",
+      transport: network.createPeer("guest-peer"),
+    });
+    let disconnected = false;
+    let players: readonly { peerId: string }[] = [];
+
+    guest.onHostDisconnected(() => {
+      disconnected = true;
+    });
+    guest.onPlayersChanged((nextPlayers) => {
+      players = nextPlayers;
+    });
+
+    guest.join();
+    assert.equal(guest.localPlayer?.id, "player-2");
+    host.close();
+
+    assert.equal(disconnected, true);
+    assert.equal(guest.localPlayer, undefined);
+    assert.deepEqual(
+      players.map((player) => player.peerId),
+      ["guest-peer"],
+    );
+  });
+
+  it("removes a guest from the host room when that guest peer disconnects", () => {
+    const network = new FakeNetwork();
+    const host = new HostRoom({
+      roomId: "ROOM-1",
+      maxPlayers: 2,
+      displayName: "Host",
+      transport: network.createPeer("host-peer"),
+    });
+    const guestTransport = network.createPeer("guest-peer");
+    const guest = new GuestRoom({
+      roomId: "ROOM-1",
+      displayName: "ABC",
+      hostPeerId: "host-peer",
+      transport: guestTransport,
+    });
+    let leftPlayerId = "";
+    let leftReason = "";
+
+    host.onPlayerLeft((playerId, reason) => {
+      leftPlayerId = playerId;
+      leftReason = reason ?? "";
+    });
+
+    guest.join();
+    guest.close();
+
+    assert.equal(leftPlayerId, "player-2");
+    assert.equal(leftReason, "peer_disconnected");
+    assert.deepEqual(
+      host.players.map((player) => player.peerId),
+      ["host-peer"],
+    );
+  });
+
   it("attaches assisted one-way timing metadata to inputs and snapshots", () => {
     type Input = { direction: "left" | "right" };
     type Snapshot = { tick: number; x: number };

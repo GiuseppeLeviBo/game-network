@@ -47,6 +47,10 @@ type HubServerMessage =
       fromPeerId: string;
       toPeerId: string;
       payload: unknown;
+    }
+  | {
+      kind: "peer_disconnected";
+      peerId: string;
     };
 
 export function startWebSocketHubServer(options: StartWebSocketHubServerOptions): WebSocketServer {
@@ -113,13 +117,31 @@ function configureWebSocketHubServer(server: WebSocketServer): void {
       }
     });
 
-    client.on("close", () => {
-      const peerId = peerIdsByClient.get(client);
-      if (peerId && clientsByPeerId.get(peerId) === client) {
-        clientsByPeerId.delete(peerId);
-      }
-    });
+    client.on("close", () => removeClient(client, clientsByPeerId, peerIdsByClient));
   });
+}
+
+function removeClient(
+  client: WebSocket,
+  clientsByPeerId: Map<string, WebSocket>,
+  peerIdsByClient: WeakMap<WebSocket, string>,
+): void {
+  const peerId = peerIdsByClient.get(client);
+  if (!peerId || clientsByPeerId.get(peerId) !== client) return;
+  clientsByPeerId.delete(peerId);
+  broadcastPeerDisconnected(clientsByPeerId, peerId);
+}
+
+function broadcastPeerDisconnected(
+  clientsByPeerId: Map<string, WebSocket>,
+  peerId: string,
+): void {
+  for (const client of clientsByPeerId.values()) {
+    send(client, {
+      kind: "peer_disconnected",
+      peerId,
+    });
+  }
 }
 
 function forwardOrBroadcast(

@@ -35,11 +35,16 @@ type WebSocketTransportServerMessage =
       toPeerId?: PeerId;
       channel: TransportChannelName;
       data: unknown;
+    }
+  | {
+      kind: "peer_disconnected";
+      peerId: PeerId;
     };
 
 export class WebSocketTransport implements GameNetworkTransport {
   private readonly messageSlot = new EventSlot<[TransportMessage]>();
   private readonly closeSlot = new EventSlot<[]>();
+  private readonly peerDisconnectedSlot = new EventSlot<[PeerId]>();
   private readonly errorSlot = new EventSlot<[Error]>();
   private readonly socket: WebSocket;
 
@@ -94,13 +99,22 @@ export class WebSocketTransport implements GameNetworkTransport {
     return this.closeSlot.subscribe(handler);
   }
 
+  onPeerDisconnected(handler: (peerId: PeerId) => void): Unsubscribe {
+    return this.peerDisconnectedSlot.subscribe(handler);
+  }
+
   onError(handler: (error: Error) => void): Unsubscribe {
     return this.errorSlot.subscribe(handler);
   }
 
   private handleMessage(data: unknown): void {
     const message = parseMessage(data);
-    if (!message || message.kind !== "transport") return;
+    if (!message) return;
+    if (message.kind === "peer_disconnected") {
+      this.peerDisconnectedSlot.emit(message.peerId);
+      return;
+    }
+    if (message.kind !== "transport") return;
     this.messageSlot.emit({
       channel: message.channel,
       fromPeerId: message.fromPeerId,
@@ -119,6 +133,9 @@ function parseMessage(data: unknown): WebSocketTransportServerMessage | undefine
   try {
     const parsed = JSON.parse(data) as Partial<WebSocketTransportServerMessage>;
     if (parsed.kind === "registered" && typeof parsed.peerId === "string") {
+      return parsed as WebSocketTransportServerMessage;
+    }
+    if (parsed.kind === "peer_disconnected" && typeof parsed.peerId === "string") {
       return parsed as WebSocketTransportServerMessage;
     }
     if (

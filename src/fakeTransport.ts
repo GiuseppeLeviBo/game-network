@@ -34,12 +34,16 @@ export class FakeNetwork {
 
   remove(peerId: PeerId): void {
     this.transports.delete(peerId);
+    for (const transport of this.transports.values()) {
+      transport.receivePeerDisconnected(peerId);
+    }
   }
 }
 
 export class FakeTransport implements GameNetworkTransport {
   private readonly messageSlot = new EventSlot<[TransportMessage]>();
   private readonly closeSlot = new EventSlot<[]>();
+  private readonly peerDisconnectedSlot = new EventSlot<[PeerId]>();
   private isClosed = false;
 
   constructor(
@@ -79,6 +83,12 @@ export class FakeTransport implements GameNetworkTransport {
     }
   }
 
+  receivePeerDisconnected(peerId: PeerId): void {
+    if (!this.isClosed) {
+      this.peerDisconnectedSlot.emit(peerId);
+    }
+  }
+
   onMessage(handler: (message: TransportMessage) => void): Unsubscribe {
     return this.messageSlot.subscribe(handler);
   }
@@ -87,10 +97,13 @@ export class FakeTransport implements GameNetworkTransport {
     return this.closeSlot.subscribe(handler);
   }
 
+  onPeerDisconnected(handler: (peerId: PeerId) => void): Unsubscribe {
+    return this.peerDisconnectedSlot.subscribe(handler);
+  }
+
   private assertOpen(): void {
     if (this.isClosed) {
       throw new Error(`Fake peer is closed: ${this.localPeerId}`);
     }
   }
 }
-
