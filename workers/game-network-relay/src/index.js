@@ -170,19 +170,9 @@ export class GameNetworkRoom {
     const peerId = this.peerIdsBySocket.get(socket);
     if (peerId && this.clientsByPeerId.get(peerId) === socket) {
       this.clientsByPeerId.delete(peerId);
-      this.broadcastPeerDisconnected(peerId);
     }
     this.peerIdsBySocket.delete(socket);
     this.rateBySocket.delete(socket);
-  }
-
-  broadcastPeerDisconnected(peerId) {
-    for (const client of this.clientsByPeerId.values()) {
-      send(client, {
-        kind: "peer_disconnected",
-        peerId,
-      });
-    }
   }
 
   closeSocket(socket, code, reason) {

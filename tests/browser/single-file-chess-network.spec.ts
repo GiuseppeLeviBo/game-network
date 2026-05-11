@@ -66,38 +66,6 @@ test("single-file chess mirrors host snapshots and guest moves over WebSocket", 
   }
 });
 
-test("single-file chess guest marks the network disconnected when host closes", async ({ browser }) => {
-  const hub = await startHub();
-  const hostServer = await startStaticServer(gameNetworkRoot);
-  const guestServer = await startStaticServer(gameNetworkRoot);
-  const context = await browser.newContext();
-  const host = await context.newPage();
-  const guest = await context.newPage();
-  await installChessPageStubs(host);
-  await installChessPageStubs(guest);
-
-  const room = `CHESS-CLOSE-${Date.now()}`;
-  const hostUrl = `${hostServer.url}/single-file-chess-game/?transport=websocket&role=host&room=${room}&peer=chess-host-${room}&signaling=${hub.url}`;
-  const guestUrl = `${guestServer.url}/single-file-chess-game/?transport=websocket&role=guest&room=${room}&peer=chess-guest-${room}&host=chess-host-${room}&signaling=${hub.url}`;
-
-  try {
-    await host.goto(hostUrl);
-    await guest.goto(guestUrl);
-
-    await expectConnected(host);
-    await expectConnected(guest);
-
-    await host.close();
-
-    await expect(guest.locator("#networkStatusBadge")).toHaveText("Disconnesso", { timeout: 10_000 });
-  } finally {
-    await context.close();
-    await closeServer(hostServer.server);
-    await closeServer(guestServer.server);
-    await closeServer(hub.server);
-  }
-});
-
 test("single-file chess connects through native WebRTC transport", async ({ browser }) => {
   const hub = await startHub();
   const hostServer = await startStaticServer(gameNetworkRoot);

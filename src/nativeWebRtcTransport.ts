@@ -48,10 +48,6 @@ type HubServerMessage =
       fromPeerId: PeerId;
       toPeerId: PeerId;
       payload: SignalPayload;
-    }
-  | {
-      kind: "peer_disconnected";
-      peerId: PeerId;
     };
 
 interface DataChannelPayload {
@@ -86,11 +82,9 @@ const DATA_CHANNEL_OPTIONS: Record<TransportChannelName, RTCDataChannelInit> = {
 export class NativeWebRtcTransport implements GameNetworkTransport {
   private readonly messageSlot = new EventSlot<[TransportMessage]>();
   private readonly closeSlot = new EventSlot<[]>();
-  private readonly peerDisconnectedSlot = new EventSlot<[PeerId]>();
   private readonly errorSlot = new EventSlot<[Error]>();
   private readonly peers = new Map<PeerId, PeerState>();
   private readonly signalingSocket: WebSocket;
-  private isClosing = false;
 
   private constructor(
     readonly localPeerId: PeerId,
@@ -161,7 +155,6 @@ export class NativeWebRtcTransport implements GameNetworkTransport {
   }
 
   close(): void {
-    this.isClosing = true;
     for (const state of this.peers.values()) {
       for (const dataChannel of Object.values(state.dataChannels)) {
         dataChannel?.close();
@@ -181,23 +174,13 @@ export class NativeWebRtcTransport implements GameNetworkTransport {
     return this.closeSlot.subscribe(handler);
   }
 
-  onPeerDisconnected(handler: (peerId: PeerId) => void): Unsubscribe {
-    return this.peerDisconnectedSlot.subscribe(handler);
-  }
-
   onError(handler: (error: Error) => void): Unsubscribe {
     return this.errorSlot.subscribe(handler);
   }
 
   private async handleSignalingMessage(data: unknown): Promise<void> {
     const message = parseHubMessage(data);
-    if (!message) return;
-    if (message.kind === "peer_disconnected") {
-      this.removePeer(message.peerId, false);
-      this.peerDisconnectedSlot.emit(message.peerId);
-      return;
-    }
-    if (message.kind !== "signal") return;
+    if (!message || message.kind !== "signal") return;
 
     const peerId = message.fromPeerId;
     const state = this.getOrCreatePeerState(peerId);
@@ -258,25 +241,12 @@ export class NativeWebRtcTransport implements GameNetworkTransport {
         connection.connectionState === "closed" ||
         connection.connectionState === "disconnected"
       ) {
-        this.removePeer(peerId, !this.isClosing);
+        this.peers.delete(peerId);
       }
     });
 
     this.peers.set(peerId, state);
     return state;
-  }
-
-  private removePeer(peerId: PeerId, emitDisconnected: boolean): void {
-    const state = this.peers.get(peerId);
-    if (!state) return;
-    for (const dataChannel of Object.values(state.dataChannels)) {
-      dataChannel?.close();
-    }
-    state.connection.close();
-    this.peers.delete(peerId);
-    if (emitDisconnected) {
-      this.peerDisconnectedSlot.emit(peerId);
-    }
   }
 
   private registerDataChannel(
@@ -372,9 +342,6 @@ function parseHubMessage(data: unknown): HubServerMessage | undefined {
   try {
     const parsed = JSON.parse(data) as Partial<HubServerMessage>;
     if (parsed.kind === "registered" && typeof parsed.peerId === "string") {
-      return parsed as HubServerMessage;
-    }
-    if (parsed.kind === "peer_disconnected" && typeof parsed.peerId === "string") {
       return parsed as HubServerMessage;
     }
     if (

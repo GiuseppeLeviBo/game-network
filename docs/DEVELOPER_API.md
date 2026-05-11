@@ -76,10 +76,6 @@ guestRoom.onSnapshot((payload) => {
   render(payload.snapshot);
 });
 
-guestRoom.onHostDisconnected(() => {
-  showDisconnectedState();
-});
-
 guestRoom.join();
 
 guestRoom.sendInput({
@@ -110,10 +106,6 @@ import { WebSocketTransport } from "@local/game-network";
 const transport = await WebSocketTransport.create({
   peerId: "guest-peer",
   url: "ws://192.168.0.197:9201/ws",
-});
-
-transport.onPeerDisconnected?.((peerId) => {
-  console.log("peer disconnected", peerId);
 });
 ```
 

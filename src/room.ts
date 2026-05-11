@@ -63,7 +63,6 @@ export class HostRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = u
     };
     this.addPlayer(this.localPlayer);
     options.transport.onMessage((message) => this.handleMessage(message.fromPeerId, message.data));
-    options.transport.onPeerDisconnected?.((peerId) => this.handlePeerDisconnected(peerId));
   }
 
   get players(): readonly PlayerInfo[] {
@@ -260,42 +259,9 @@ export class HostRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = u
     );
   }
 
-  private broadcastPlayerLeft(player: PlayerInfo, reason?: string): void {
-    this.options.transport.broadcast(
-      "control",
-      createEnvelope({
-        type: "player_left",
-        roomId: this.roomId,
-        senderPeerId: this.localPlayer.peerId,
-        sentAt: this.now(),
-        payload: {
-          playerId: player.id,
-          reason,
-          players: [...this.players],
-        },
-      }),
-    );
-  }
-
   private addPlayer(player: PlayerInfo): void {
     this.playersByPeerId.set(player.peerId, player);
     this.playersById.set(player.id, player);
-  }
-
-  private removePlayerByPeerId(peerId: string): PlayerInfo | undefined {
-    const player = this.playersByPeerId.get(peerId);
-    if (!player || player.isHost) return undefined;
-    this.playersByPeerId.delete(peerId);
-    this.playersById.delete(player.id);
-    return player;
-  }
-
-  private handlePeerDisconnected(peerId: string): void {
-    const player = this.removePlayerByPeerId(peerId);
-    if (!player) return;
-    const reason = "peer_disconnected";
-    this.playerLeft.emit(player.id, reason);
-    this.broadcastPlayerLeft(player, reason);
   }
 
   private assignPlayerId(index: number): PlayerId {
@@ -306,7 +272,6 @@ export class HostRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = u
 export class GuestRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = unknown, GameConfig = unknown> {
   private readonly connected = new EventSlot<[JoinAcceptPayload<GameConfig>]>();
   private readonly rejected = new EventSlot<[JoinRejectPayload]>();
-  private readonly hostDisconnected = new EventSlot<[]>();
   private readonly playersChanged = new EventSlot<[readonly PlayerInfo[]]>();
   private readonly snapshotReceived = new EventSlot<[SnapshotEnvelope<GameSnapshot>]>();
   private readonly eventReceived = new EventSlot<[GameEventEnvelope<GameEvent>]>();
@@ -321,7 +286,6 @@ export class GuestRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = 
     this.now = options.now ?? defaultMonotonicClock;
     this.roomId = options.roomId;
     options.transport.onMessage((message) => this.handleMessage(message.data));
-    options.transport.onPeerDisconnected?.((peerId) => this.handlePeerDisconnected(peerId));
   }
 
   get players(): readonly PlayerInfo[] {
@@ -381,10 +345,6 @@ export class GuestRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = 
     return this.rejected.subscribe(handler);
   }
 
-  onHostDisconnected(handler: () => void): Unsubscribe {
-    return this.hostDisconnected.subscribe(handler);
-  }
-
   onPlayersChanged(handler: (players: readonly PlayerInfo[]) => void): Unsubscribe {
     return this.playersChanged.subscribe(handler);
   }
@@ -421,13 +381,6 @@ export class GuestRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = 
       return;
     }
 
-    if (data.type === "player_left") {
-      const payload = data.payload as { players: PlayerInfo[] };
-      this.room = this.room ? { ...this.room, players: payload.players } : this.room;
-      this.playersChanged.emit(payload.players);
-      return;
-    }
-
     if (data.type === "room_update") {
       this.room = data.payload as RoomInfo<GameConfig>;
       this.playersChanged.emit(this.room.players);
@@ -442,21 +395,6 @@ export class GuestRoom<GameInput = unknown, GameSnapshot = unknown, GameEvent = 
     if (data.type === "game_event") {
       this.eventReceived.emit(addTimingMetadata(data.payload as GameEventEnvelope<GameEvent>, data.sentAt, this.now()));
     }
-  }
-
-  private handlePeerDisconnected(peerId: string): void {
-    if (peerId !== this.options.hostPeerId) return;
-    if (this.room?.status === "closed" && !this.localPlayer) return;
-    if (this.room) {
-      this.room = {
-        ...this.room,
-        status: "closed",
-        players: this.room.players.filter((player) => player.peerId !== peerId),
-      };
-      this.playersChanged.emit(this.room.players);
-    }
-    this.localPlayer = undefined;
-    this.hostDisconnected.emit();
   }
 }
 
