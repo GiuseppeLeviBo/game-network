@@ -2244,6 +2244,12 @@
                     console.warn('Chess network join rejected:', payload);
                     diagnostics.update({ status: 'error', connectedPeerId: hostPeerId });
                 });
+                guestRoom.onHostDisconnected(() => {
+                    markDisconnected();
+                    if (diagnosticClockClient) diagnosticClockClient.close();
+                    if (syncBurstTimer) clearInterval(syncBurstTimer);
+                    if (syncPanelTimer) clearInterval(syncPanelTimer);
+                });
                 guestRoom.onSnapshot((payload) => {
                     // Guest rendering follows the host snapshot. This is what
                     // keeps reconnects and optimistic guest moves honest.

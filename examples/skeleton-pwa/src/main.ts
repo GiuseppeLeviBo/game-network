@@ -106,6 +106,11 @@ async function start(): Promise<void> {
     statusEl.textContent = `Rejected: ${payload.reason}`;
   });
 
+  room.onHostDisconnected(() => {
+    statusEl.textContent = "Disconnected";
+    sendInputButton.disabled = true;
+  });
+
   room.onPlayersChanged((players) => {
     renderPlayers(players);
   });

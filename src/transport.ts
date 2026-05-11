@@ -22,4 +22,5 @@ export interface GameNetworkTransport {
 
   onMessage(handler: (message: TransportMessage) => void): Unsubscribe;
   onClose(handler: () => void): Unsubscribe;
+  onPeerDisconnected?(handler: (peerId: PeerId) => void): Unsubscribe;
 }

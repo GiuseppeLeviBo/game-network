@@ -25,9 +25,11 @@ interface PeerJsTransportPayload {
 export class PeerJsTransport implements GameNetworkTransport {
   private readonly messageSlot = new EventSlot<[TransportMessage]>();
   private readonly closeSlot = new EventSlot<[]>();
+  private readonly peerDisconnectedSlot = new EventSlot<[PeerId]>();
   private readonly errorSlot = new EventSlot<[Error]>();
   private readonly connections = new Map<PeerId, DataConnection>();
   private readonly queues = new Map<PeerId, PeerJsTransportPayload[]>();
+  private isClosing = false;
 
   private constructor(private readonly peer: PeerType) {
     this.localPeerId = peer.id;
@@ -79,6 +81,7 @@ export class PeerJsTransport implements GameNetworkTransport {
   }
 
   close(): void {
+    this.isClosing = true;
     for (const connection of this.connections.values()) {
       connection.close();
     }
@@ -96,6 +99,10 @@ export class PeerJsTransport implements GameNetworkTransport {
 
   onClose(handler: () => void): Unsubscribe {
     return this.closeSlot.subscribe(handler);
+  }
+
+  onPeerDisconnected(handler: (peerId: PeerId) => void): Unsubscribe {
+    return this.peerDisconnectedSlot.subscribe(handler);
   }
 
   onError(handler: (error: Error) => void): Unsubscribe {
@@ -120,6 +127,9 @@ export class PeerJsTransport implements GameNetworkTransport {
     connection.on("close", () => {
       if (this.connections.get(connection.peer) === connection) {
         this.connections.delete(connection.peer);
+        if (!this.isClosing) {
+          this.peerDisconnectedSlot.emit(connection.peer);
+        }
       }
     });
     connection.on("error", (error) => this.errorSlot.emit(error));
