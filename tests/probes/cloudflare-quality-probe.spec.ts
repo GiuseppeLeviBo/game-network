@@ -7,6 +7,7 @@ const DEFAULT_SIGNALING_URL = "wss://game-network.giuseppe-levi.workers.dev/ws";
 
 const durationMs = readEnvNumber("GAME_NETWORK_PROBE_DURATION_MS", 300_000);
 const warmupMs = readEnvNumber("GAME_NETWORK_PROBE_WARMUP_MS", 60_000);
+const windowMs = readEnvNumber("GAME_NETWORK_PROBE_WINDOW_MS", 30_000);
 const outputRoot = process.env.GAME_NETWORK_PROBE_OUTPUT_DIR ?? "Notes/cloudflare-probe";
 const gameUrl = process.env.GAME_NETWORK_PROBE_URL ?? DEFAULT_GAME_URL;
 const signalingBaseUrl = process.env.GAME_NETWORK_SIGNALING_URL ?? DEFAULT_SIGNALING_URL;
@@ -188,12 +189,31 @@ interface EndpointSummary {
   lateProbeCount: number;
   lateProbeRate: number;
   worstLateProbeMs: number | null;
+  clockOffsetSpreadMs: number | null;
+}
+
+interface WindowSummary {
+  startMs: number;
+  endMs: number;
+  samples: number;
+  probes: number;
+  rttP50Ms: number | null;
+  rttP95Ms: number | null;
+  oneWayP50Ms: number | null;
+  oneWayP95Ms: number | null;
+  jitterP50Ms: number | null;
+  jitterP95Ms: number | null;
+  lateProbeCount: number;
+  lateProbeRate: number;
+  worstLateProbeMs: number | null;
+  clockOffsetSpreadMs: number | null;
 }
 
 interface ProbeSummary {
   room: string;
   durationMs: number;
   warmupMs: number;
+  windowMs: number;
   gameUrl: string;
   signalingUrl: string;
   outputDir: string;
@@ -201,6 +221,8 @@ interface ProbeSummary {
   guestSnapshot: Record<string, string>;
   host: EndpointSummary;
   guest: EndpointSummary;
+  hostWindows: WindowSummary[];
+  guestWindows: WindowSummary[];
   timelineComparison: MetricSummary;
   quality: string;
 }
@@ -221,11 +243,14 @@ function buildSummary(options: {
   const guestRows = parseCsv(options.guestCsv);
   const host = summarizeEndpoint(hostRows, options.warmupMs);
   const guest = summarizeEndpoint(guestRows, options.warmupMs);
+  const hostWindows = summarizeWindows(hostRows, options.warmupMs, options.durationMs, windowMs);
+  const guestWindows = summarizeWindows(guestRows, options.warmupMs, options.durationMs, windowMs);
   const timelineComparison = compareTimelines(hostRows, guestRows, options.warmupMs);
   return {
     room: options.room,
     durationMs: options.durationMs,
     warmupMs: options.warmupMs,
+    windowMs,
     gameUrl: options.gameUrl,
     signalingUrl: options.signalingUrl,
     outputDir: options.outputDir,
@@ -233,6 +258,8 @@ function buildSummary(options: {
     guestSnapshot: options.guestSnapshot,
     host,
     guest,
+    hostWindows,
+    guestWindows,
     timelineComparison,
     quality: classifyQuality(host, guest, timelineComparison),
   };
@@ -257,6 +284,7 @@ function summarizeEndpoint(rows: CsvRow[], warmupMs: number): EndpointSummary {
   const probes = rows.filter((row) => row.type === "probe" && numeric(row.sinceResetMs) >= warmupMs);
   const batches = rows.filter((row) => Number.isFinite(numeric(row.batchOneWayDelayMs)));
   const probeSlacks = probes.map((row) => numeric(row.probeSlackMs)).filter(Number.isFinite);
+  const clockOffsets = samples.map((row) => numeric(row.stabilityMs)).filter(Number.isFinite);
   const lateProbeCount = probeSlacks.filter((value) => value < 0).length;
   const worstLateProbeMs = lateProbeCount > 0 ? Math.max(...probeSlacks.filter((value) => value < 0).map((value) => -value)) : null;
 
@@ -275,7 +303,43 @@ function summarizeEndpoint(rows: CsvRow[], warmupMs: number): EndpointSummary {
     lateProbeCount,
     lateProbeRate: probes.length > 0 ? lateProbeCount / probes.length : 0,
     worstLateProbeMs,
+    clockOffsetSpreadMs: spread(clockOffsets),
   };
+}
+
+function summarizeWindows(rows: CsvRow[], startMs: number, endMs: number, sizeMs: number): WindowSummary[] {
+  const windows: WindowSummary[] = [];
+  for (let start = startMs; start < endMs; start += sizeMs) {
+    const end = Math.min(endMs, start + sizeMs);
+    const samples = rows.filter(
+      (row) => row.type === "sample" && row.source === "local" && numeric(row.sinceResetMs) >= start && numeric(row.sinceResetMs) < end,
+    );
+    const probes = rows.filter(
+      (row) => row.type === "probe" && row.source === "local" && numeric(row.sinceResetMs) >= start && numeric(row.sinceResetMs) < end,
+    );
+    const probeSlacks = probes.map((row) => numeric(row.probeSlackMs)).filter(Number.isFinite);
+    const lateProbeCount = probeSlacks.filter((value) => value < 0).length;
+    const worstLateProbeMs =
+      lateProbeCount > 0 ? Math.max(...probeSlacks.filter((value) => value < 0).map((value) => -value)) : null;
+    const clockOffsets = samples.map((row) => numeric(row.stabilityMs)).filter(Number.isFinite);
+    windows.push({
+      startMs: start,
+      endMs: end,
+      samples: samples.length,
+      probes: probes.length,
+      rttP50Ms: summarize(samples, "rttMs").p50,
+      rttP95Ms: summarize(samples, "rttMs").p95,
+      oneWayP50Ms: summarize(samples, "oneWayDelayMs").p50,
+      oneWayP95Ms: summarize(samples, "oneWayDelayMs").p95,
+      jitterP50Ms: summarize(samples, "oneWayJitterMs").p50,
+      jitterP95Ms: summarize(samples, "oneWayJitterMs").p95,
+      lateProbeCount,
+      lateProbeRate: probes.length > 0 ? lateProbeCount / probes.length : 0,
+      worstLateProbeMs,
+      clockOffsetSpreadMs: spread(clockOffsets),
+    });
+  }
+  return windows;
 }
 
 function compareTimelines(hostRows: CsvRow[], guestRows: CsvRow[], warmupMs: number): MetricSummary {
@@ -337,10 +401,15 @@ function numeric(value: string | undefined): number {
 function classifyQuality(host: EndpointSummary, guest: EndpointSummary, timeline: MetricSummary): string {
   const lateRate = Math.max(host.lateProbeRate, guest.lateProbeRate);
   const worstLate = Math.max(host.worstLateProbeMs ?? 0, guest.worstLateProbeMs ?? 0);
-  const syncStability = Math.max(stabilityBound(host.stabilityMs), stabilityBound(guest.stabilityMs));
+  const rttP95 = Math.max(host.rttMs.p95 ?? Number.POSITIVE_INFINITY, guest.rttMs.p95 ?? Number.POSITIVE_INFINITY);
+  const oneWayP95 = Math.max(host.oneWayDelayMs.p95 ?? Number.POSITIVE_INFINITY, guest.oneWayDelayMs.p95 ?? Number.POSITIVE_INFINITY);
+  const batchP95 = Math.max(
+    host.telemetryBatchOneWayMs.p95 ?? Number.POSITIVE_INFINITY,
+    guest.telemetryBatchOneWayMs.p95 ?? Number.POSITIVE_INFINITY,
+  );
   void timeline;
-  if (syncStability <= 10 && lateRate < 0.01 && worstLate < 20) return "GOOD";
-  if (syncStability <= 10 && lateRate < 0.05 && worstLate < 80) return "PLAYABLE";
+  if (lateRate < 0.01 && worstLate < 20 && rttP95 < 60 && oneWayP95 < 35 && batchP95 < 100) return "GOOD";
+  if (lateRate < 0.05 && worstLate < 80 && rttP95 < 120 && oneWayP95 < 60 && batchP95 < 250) return "PLAYABLE";
   return "UNSTABLE";
 }
 
@@ -348,7 +417,8 @@ function renderConsoleSummary(summary: ProbeSummary): string {
   return [
     `Cloudflare probe ${summary.room}: ${summary.quality}`,
     `output: ${summary.outputDir}`,
-    `sync stability p99: host ${format(summary.host.stabilityMs.p99)} ms, guest ${format(summary.guest.stabilityMs.p99)} ms`,
+    `clock offset p50: host ${format(summary.host.stabilityMs.p50)} ms, guest ${format(summary.guest.stabilityMs.p50)} ms`,
+    `clock offset spread: host ${format(summary.host.clockOffsetSpreadMs)} ms, guest ${format(summary.guest.clockOffsetSpreadMs)} ms`,
     `sample-pair timeline delta p99: ${format(summary.timelineComparison.p99)} ms (sampling alignment, not clock error)`,
     `host late probes: ${summary.host.lateProbeCount}/${summary.host.probes} worst ${format(summary.host.worstLateProbeMs)} ms`,
     `guest late probes: ${summary.guest.lateProbeCount}/${summary.guest.probes} worst ${format(summary.guest.worstLateProbeMs)} ms`,
@@ -362,6 +432,7 @@ Quality: **${summary.quality}**
 
 - Duration: ${Math.round(summary.durationMs / 1000)} s
 - Warm-up discarded: ${Math.round(summary.warmupMs / 1000)} s
+- Window size: ${Math.round(summary.windowMs / 1000)} s
 - Game URL: ${summary.gameUrl}
 - Signaling URL: ${summary.signalingUrl}
 
@@ -382,9 +453,17 @@ metric.
 
 ${renderEndpointMarkdown(summary.host)}
 
+### Host Windows
+
+${renderWindowsMarkdown(summary.hostWindows)}
+
 ## Guest
 
 ${renderEndpointMarkdown(summary.guest)}
+
+### Guest Windows
+
+${renderWindowsMarkdown(summary.guestWindows)}
 `;
 }
 
@@ -393,7 +472,8 @@ function renderEndpointMarkdown(summary: EndpointSummary): string {
 | --- | ---: |
 | samples | ${summary.samples} |
 | probes | ${summary.probes} |
-| sync stability p50 / p95 / p99 | ${format(summary.stabilityMs.p50)} / ${format(summary.stabilityMs.p95)} / ${format(summary.stabilityMs.p99)} ms |
+| clock offset estimate p50 / p95 / p99 | ${format(summary.stabilityMs.p50)} / ${format(summary.stabilityMs.p95)} / ${format(summary.stabilityMs.p99)} ms |
+| clock offset estimate spread | ${format(summary.clockOffsetSpreadMs)} ms |
 | RTT p50 / p95 / p99 | ${format(summary.rttMs.p50)} / ${format(summary.rttMs.p95)} / ${format(summary.rttMs.p99)} ms |
 | one-way p50 / p95 / p99 | ${format(summary.oneWayDelayMs.p50)} / ${format(summary.oneWayDelayMs.p95)} / ${format(summary.oneWayDelayMs.p99)} ms |
 | jitter p50 / p95 / p99 | ${format(summary.oneWayJitterMs.p50)} / ${format(summary.oneWayJitterMs.p95)} / ${format(summary.oneWayJitterMs.p99)} ms |
@@ -404,11 +484,23 @@ function renderEndpointMarkdown(summary: EndpointSummary): string {
 | telemetry batch p95 / p99 / max | ${format(summary.telemetryBatchOneWayMs.p95)} / ${format(summary.telemetryBatchOneWayMs.p99)} / ${format(summary.telemetryBatchOneWayMs.max)} ms |`;
 }
 
+function renderWindowsMarkdown(windows: WindowSummary[]): string {
+  const rows = windows
+    .map(
+      (window) =>
+        `| ${Math.round(window.startMs / 1000)}-${Math.round(window.endMs / 1000)} | ${window.samples} | ${format(window.rttP50Ms)} / ${format(window.rttP95Ms)} | ${format(window.oneWayP50Ms)} / ${format(window.oneWayP95Ms)} | ${format(window.jitterP50Ms)} / ${format(window.jitterP95Ms)} | ${window.lateProbeCount} (${(window.lateProbeRate * 100).toFixed(1)}%) | ${format(window.worstLateProbeMs)} | ${format(window.clockOffsetSpreadMs)} |`,
+    )
+    .join("\n");
+  return `| Window (s) | Samples | RTT p50/p95 | OW p50/p95 | Jitter p50/p95 | Late probes | Worst late | Offset spread |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+${rows}`;
+}
+
 function format(value: number | null): string {
   return value === null || !Number.isFinite(value) ? "--" : value.toFixed(2);
 }
 
-function stabilityBound(summary: MetricSummary): number {
-  const candidates = [summary.min, summary.p99, summary.max].filter((value): value is number => value !== null);
-  return candidates.length > 0 ? Math.max(...candidates.map((value) => Math.abs(value))) : Number.POSITIVE_INFINITY;
+function spread(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return Math.max(...values) - Math.min(...values);
 }

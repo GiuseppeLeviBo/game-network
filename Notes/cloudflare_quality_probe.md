@@ -85,11 +85,12 @@ Recommended practice:
 
 The summary separates:
 
-- clock sync stability;
+- clock offset estimate and offset spread;
 - WebSocket event delivery quality;
 - late probe rate;
 - worst late probe;
 - telemetry batch delay.
+- 30-second windows, so warm-up phases and isolated spikes are visible.
 
 This distinction matters: a run can have excellent clock synchronization and
 still show occasional late events when the Cloudflare/WebSocket path has a queue
@@ -98,3 +99,8 @@ or routing spike.
 The report also includes a nearest-sample timeline comparison. That value is
 limited by the telemetry sampling cadence and must not be read as the primary
 clock-error metric.
+
+The `clock offset estimate` is the clock model's estimated offset between the
+two local monotonic clocks. Its absolute value is not an error. The `offset
+spread` is usually more useful for checking whether the model is stable during a
+run.
