@@ -209,6 +209,22 @@ interface WindowSummary {
   clockOffsetSpreadMs: number | null;
 }
 
+interface LateProbeDetail {
+  source: string;
+  role: string;
+  sinceResetMs: number | null;
+  direction: string;
+  slackMs: number;
+  oneWayDelayMs: number | null;
+  lookaheadMs: number | null;
+  scheduledAt: number | null;
+  sentAt: number | null;
+  receivedAt: number | null;
+  sendLeadMs: number | null;
+  sendToReceiveMs: number | null;
+  receiveAfterScheduleMs: number | null;
+}
+
 interface ProbeSummary {
   room: string;
   durationMs: number;
@@ -223,6 +239,8 @@ interface ProbeSummary {
   guest: EndpointSummary;
   hostWindows: WindowSummary[];
   guestWindows: WindowSummary[];
+  hostLateProbeDetails: LateProbeDetail[];
+  guestLateProbeDetails: LateProbeDetail[];
   timelineComparison: MetricSummary;
   quality: string;
 }
@@ -245,6 +263,8 @@ function buildSummary(options: {
   const guest = summarizeEndpoint(guestRows, options.warmupMs);
   const hostWindows = summarizeWindows(hostRows, options.warmupMs, options.durationMs, windowMs);
   const guestWindows = summarizeWindows(guestRows, options.warmupMs, options.durationMs, windowMs);
+  const hostLateProbeDetails = lateProbeDetails(hostRows, options.warmupMs, 12);
+  const guestLateProbeDetails = lateProbeDetails(guestRows, options.warmupMs, 12);
   const timelineComparison = compareTimelines(hostRows, guestRows, options.warmupMs);
   return {
     room: options.room,
@@ -260,6 +280,8 @@ function buildSummary(options: {
     guest,
     hostWindows,
     guestWindows,
+    hostLateProbeDetails,
+    guestLateProbeDetails,
     timelineComparison,
     quality: classifyQuality(host, guest, timelineComparison),
   };
@@ -342,6 +364,34 @@ function summarizeWindows(rows: CsvRow[], startMs: number, endMs: number, sizeMs
   return windows;
 }
 
+function lateProbeDetails(rows: CsvRow[], warmupMs: number, limit: number): LateProbeDetail[] {
+  return rows
+    .filter((row) => row.type === "probe" && numeric(row.sinceResetMs) >= warmupMs && numeric(row.probeSlackMs) < 0)
+    .map((row) => {
+      const scheduledAt = nullableNumber(row.probeScheduledAt);
+      const sentAt = nullableNumber(row.sentAt);
+      const receivedAt = nullableNumber(row.receivedAt);
+      const oneWayDelayMs = nullableNumber(row.oneWayDelayMs);
+      return {
+        source: row.source ?? "",
+        role: row.role ?? "",
+        sinceResetMs: nullableNumber(row.sinceResetMs),
+        direction: row.probeDirection ?? "",
+        slackMs: numeric(row.probeSlackMs),
+        oneWayDelayMs,
+        lookaheadMs: nullableNumber(row.probeLookaheadMs),
+        scheduledAt,
+        sentAt,
+        receivedAt,
+        sendLeadMs: scheduledAt !== null && sentAt !== null ? scheduledAt - sentAt : null,
+        sendToReceiveMs: sentAt !== null && receivedAt !== null ? receivedAt - sentAt : oneWayDelayMs,
+        receiveAfterScheduleMs: scheduledAt !== null && receivedAt !== null ? receivedAt - scheduledAt : null,
+      };
+    })
+    .sort((a, b) => Math.abs(b.slackMs) - Math.abs(a.slackMs))
+    .slice(0, limit);
+}
+
 function compareTimelines(hostRows: CsvRow[], guestRows: CsvRow[], warmupMs: number): MetricSummary {
   const hostSamples = hostRows
     .filter((row) => row.source === "local" && row.type === "sample" && numeric(row.sinceResetMs) >= warmupMs)
@@ -396,6 +446,11 @@ function percentile(sortedValues: number[], p: number): number {
 function numeric(value: string | undefined): number {
   if (value === undefined || value === "") return Number.NaN;
   return Number(value);
+}
+
+function nullableNumber(value: string | undefined): number | null {
+  const parsed = numeric(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function classifyQuality(host: EndpointSummary, guest: EndpointSummary, timeline: MetricSummary): string {
@@ -457,6 +512,10 @@ ${renderEndpointMarkdown(summary.host)}
 
 ${renderWindowsMarkdown(summary.hostWindows)}
 
+### Host Worst Late Probes
+
+${renderLateProbeDetailsMarkdown(summary.hostLateProbeDetails)}
+
 ## Guest
 
 ${renderEndpointMarkdown(summary.guest)}
@@ -464,6 +523,10 @@ ${renderEndpointMarkdown(summary.guest)}
 ### Guest Windows
 
 ${renderWindowsMarkdown(summary.guestWindows)}
+
+### Guest Worst Late Probes
+
+${renderLateProbeDetailsMarkdown(summary.guestLateProbeDetails)}
 `;
 }
 
@@ -493,6 +556,19 @@ function renderWindowsMarkdown(windows: WindowSummary[]): string {
     .join("\n");
   return `| Window (s) | Samples | RTT p50/p95 | OW p50/p95 | Jitter p50/p95 | Late probes | Worst late | Offset spread |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+${rows}`;
+}
+
+function renderLateProbeDetailsMarkdown(details: LateProbeDetail[]): string {
+  if (details.length === 0) return "No late probes after warm-up.";
+  const rows = details
+    .map(
+      (detail) =>
+        `| ${format(detail.sinceResetMs)} | ${detail.source} | ${detail.role} | ${detail.direction} | ${format(detail.slackMs)} | ${format(detail.lookaheadMs)} | ${format(detail.oneWayDelayMs)} | ${format(detail.sendLeadMs)} | ${format(detail.sendToReceiveMs)} | ${format(detail.receiveAfterScheduleMs)} |`,
+    )
+    .join("\n");
+  return `| Since reset (ms) | Source | Role | Direction | Slack | Lookahead | One-way | Send lead | Sent to received | Received after schedule |
+| ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 ${rows}`;
 }
 

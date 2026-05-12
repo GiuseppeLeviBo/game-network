@@ -91,6 +91,7 @@ The summary separates:
 - worst late probe;
 - telemetry batch delay.
 - 30-second windows, so warm-up phases and isolated spikes are visible.
+- worst late-probe details, including scheduling, send, and receive timing.
 
 This distinction matters: a run can have excellent clock synchronization and
 still show occasional late events when the Cloudflare/WebSocket path has a queue
@@ -104,3 +105,8 @@ The `clock offset estimate` is the clock model's estimated offset between the
 two local monotonic clocks. Its absolute value is not an error. The `offset
 spread` is usually more useful for checking whether the model is stable during a
 run.
+
+The late-probe detail table is intended to distinguish a transport spike from a
+local scheduling delay. `Send lead` is the planned lead time between send and
+scheduled execution, `Sent to received` is the measured event delivery time, and
+`Received after schedule` is the amount by which a late event missed its target.
