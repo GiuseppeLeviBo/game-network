@@ -476,8 +476,20 @@ declare global {
       sendRestartRequest(): void;
     };
     __CHESS_NETWORK_DIAGNOSTICS__: {
+      resetTelemetry(): void;
       getSnapshot(): {
         quality: string;
+        role?: string;
+        room?: string;
+        localAddress?: string;
+        localPort?: string;
+        peerId?: string;
+        remotePeer?: string;
+        transport?: string;
+        signaling?: string;
+        rtt?: string;
+        bestRtt?: string;
+        offset?: string;
         oneWay?: string;
         oneWaySamples?: string;
         timelineClock?: string;
@@ -485,7 +497,7 @@ declare global {
         probeSlack?: string;
         probeSamples?: string;
       };
-      getTelemetry(): { samples: unknown[]; probes: unknown[] };
+      getTelemetry(): { samples: unknown[]; probes: unknown[]; remoteRows?: unknown[] };
       getTelemetryCsv(): string;
     };
   }
