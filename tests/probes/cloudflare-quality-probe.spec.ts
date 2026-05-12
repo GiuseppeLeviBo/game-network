@@ -185,6 +185,7 @@ interface EndpointSummary {
   adaptiveLookaheadMs: MetricSummary;
   probeSlackMs: MetricSummary;
   probeOneWayDelayMs: MetricSummary;
+  directions: DirectionSummary[];
   telemetryBatchOneWayMs: MetricSummary;
   lateProbeCount: number;
   lateProbeRate: number;
@@ -207,6 +208,16 @@ interface WindowSummary {
   lateProbeRate: number;
   worstLateProbeMs: number | null;
   clockOffsetSpreadMs: number | null;
+}
+
+interface DirectionSummary {
+  direction: string;
+  probes: number;
+  lateProbeCount: number;
+  lateProbeRate: number;
+  worstLateProbeMs: number | null;
+  probeSlackMs: MetricSummary;
+  oneWayDelayMs: MetricSummary;
 }
 
 interface LateProbeDetail {
@@ -321,12 +332,31 @@ function summarizeEndpoint(rows: CsvRow[], warmupMs: number): EndpointSummary {
     adaptiveLookaheadMs: summarize(samples, "adaptiveLookaheadMs"),
     probeSlackMs: summarizeValues(probeSlacks),
     probeOneWayDelayMs: summarize(probes, "oneWayDelayMs"),
+    directions: summarizeDirections(probes),
     telemetryBatchOneWayMs: summarize(batches, "batchOneWayDelayMs"),
     lateProbeCount,
     lateProbeRate: probes.length > 0 ? lateProbeCount / probes.length : 0,
     worstLateProbeMs,
     clockOffsetSpreadMs: spread(clockOffsets),
   };
+}
+
+function summarizeDirections(probes: CsvRow[]): DirectionSummary[] {
+  const directions = [...new Set(probes.map((row) => row.probeDirection).filter(Boolean))].sort();
+  return directions.map((direction) => {
+    const rows = probes.filter((row) => row.probeDirection === direction);
+    const slacks = rows.map((row) => numeric(row.probeSlackMs)).filter(Number.isFinite);
+    const late = slacks.filter((value) => value < 0);
+    return {
+      direction,
+      probes: rows.length,
+      lateProbeCount: late.length,
+      lateProbeRate: rows.length > 0 ? late.length / rows.length : 0,
+      worstLateProbeMs: late.length > 0 ? Math.max(...late.map((value) => -value)) : null,
+      probeSlackMs: summarizeValues(slacks),
+      oneWayDelayMs: summarize(rows, "oneWayDelayMs"),
+    };
+  });
 }
 
 function summarizeWindows(rows: CsvRow[], startMs: number, endMs: number, sizeMs: number): WindowSummary[] {
@@ -508,6 +538,10 @@ metric.
 
 ${renderEndpointMarkdown(summary.host)}
 
+### Host Direction Summary
+
+${renderDirectionMarkdown(summary.host.directions)}
+
 ### Host Windows
 
 ${renderWindowsMarkdown(summary.hostWindows)}
@@ -519,6 +553,10 @@ ${renderLateProbeDetailsMarkdown(summary.hostLateProbeDetails)}
 ## Guest
 
 ${renderEndpointMarkdown(summary.guest)}
+
+### Guest Direction Summary
+
+${renderDirectionMarkdown(summary.guest.directions)}
 
 ### Guest Windows
 
@@ -545,6 +583,19 @@ function renderEndpointMarkdown(summary: EndpointSummary): string {
 | late probes | ${summary.lateProbeCount} (${(summary.lateProbeRate * 100).toFixed(1)}%) |
 | worst late probe | ${format(summary.worstLateProbeMs)} ms |
 | telemetry batch p95 / p99 / max | ${format(summary.telemetryBatchOneWayMs.p95)} / ${format(summary.telemetryBatchOneWayMs.p99)} / ${format(summary.telemetryBatchOneWayMs.max)} ms |`;
+}
+
+function renderDirectionMarkdown(directions: DirectionSummary[]): string {
+  if (directions.length === 0) return "No directional probe data after warm-up.";
+  const rows = directions
+    .map(
+      (direction) =>
+        `| ${direction.direction} | ${direction.probes} | ${direction.lateProbeCount} (${(direction.lateProbeRate * 100).toFixed(1)}%) | ${format(direction.worstLateProbeMs)} | ${format(direction.oneWayDelayMs.p50)} / ${format(direction.oneWayDelayMs.p95)} / ${format(direction.oneWayDelayMs.p99)} | ${format(direction.probeSlackMs.p50)} / ${format(direction.probeSlackMs.p95)} / ${format(direction.probeSlackMs.min)} |`,
+    )
+    .join("\n");
+  return `| Direction | Probes | Late probes | Worst late | One-way p50/p95/p99 | Slack p50/p95/min |
+| --- | ---: | ---: | ---: | ---: | ---: |
+${rows}`;
 }
 
 function renderWindowsMarkdown(windows: WindowSummary[]): string {

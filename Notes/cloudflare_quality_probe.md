@@ -92,6 +92,7 @@ The summary separates:
 - telemetry batch delay.
 - 30-second windows, so warm-up phases and isolated spikes are visible.
 - worst late-probe details, including scheduling, send, and receive timing.
+- direction summaries for `host-to-guest` and `guest-to-host` probes.
 
 This distinction matters: a run can have excellent clock synchronization and
 still show occasional late events when the Cloudflare/WebSocket path has a queue
